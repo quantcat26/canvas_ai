@@ -1,0 +1,204 @@
+import React, { useState } from 'react';
+import './LeftToolbar.css';
+import useCanvasStore from '../store/canvasStore.js';
+
+const LeftToolbar = () => {
+  const { addCard, toggleConnectingMode, isConnectingMode } = useCanvasStore();
+  const [activeTool, setActiveTool] = useState('select');
+
+  const setTool = (tool) => {
+    setActiveTool(tool);
+    if (tool === 'connect') {
+      if (!isConnectingMode) toggleConnectingMode();
+      return;
+    }
+
+    if (isConnectingMode) toggleConnectingMode();
+  };
+
+  const handleAddTextCard = () => {
+    setTool('card');
+    const defaultMarkdownContent = `# Title
+  ## Subtitle
+
+  You can use **bold** or *italic* text.
+
+  - List item 1
+  - List item 2
+
+  [Link](https://www.example.com)
+
+  > Quoted text
+
+  \`\`\`
+  Code block
+  \`\`\`
+  `;
+
+    addCard({
+      type: 'text',
+      content: defaultMarkdownContent,
+      position: {
+        x: window.innerWidth / 2 - 150,
+        y: window.innerHeight / 2 - 100,
+      },
+      size: {
+        width: 300,
+        height: 250,
+      },
+    });
+  };
+
+  const handleAddTextOnly = () => {
+    setTool('text');
+    addCard({
+      type: 'text',
+      content: 'Click to edit text content',
+      position: {
+        x: window.innerWidth / 2 - 110,
+        y: window.innerHeight / 2 - 60,
+      },
+      size: {
+        width: 220,
+        height: 140,
+      },
+    });
+  };
+
+  const handleAddFileCard = () => {
+    setTool('upload');
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    fileInput.style.display = 'none';
+
+    fileInput.onchange = (event) => {
+      const target = event.target;
+      const file = target && target.files ? target.files[0] : null;
+      if (!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = (loadEvent) => {
+        const content = loadEvent.target?.result;
+        const fileType = file.type.split('/')[0] === 'image' ? 'image' : 'file';
+
+        addCard({
+          type: fileType,
+          content: typeof content === 'string' ? content : '',
+          position: {
+            x: window.innerWidth / 2 - 75,
+            y: window.innerHeight / 2 - 75,
+          },
+          size: {
+            width: 150,
+            height: 150,
+          },
+          fileType: file.type,
+        });
+      };
+
+      reader.readAsDataURL(file);
+    };
+
+    document.body.appendChild(fileInput);
+    fileInput.click();
+    document.body.removeChild(fileInput);
+  };
+
+  const handleToggleConnection = () => {
+    setTool('connect');
+  };
+
+  return (
+    <div className="left-toolbar">
+      <div className="toolbar-group">
+        <button
+          className={`tool-button ${activeTool === 'select' ? 'active' : ''}`}
+          title="Select tool"
+          onClick={() => setTool('select')}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5 4l12 7-6 2-2 6L5 4z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button className="tool-button" title="Add text card" onClick={handleAddTextCard}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14 17H4v2h10v-2zm6-8H4v2h16V9zM4 15h16v-2H4v2zM4 5v2h16V5H4z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button className="tool-button" title="Upload file" onClick={handleAddFileCard}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15.01l1.41 1.41L11 14.84V19h2v-4.16l1.59 1.59L16 15.01 12.01 11 8 15.01z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button
+          className={`tool-button ${activeTool === 'text' ? 'active' : ''}`}
+          title="Text tool"
+          onClick={handleAddTextOnly}
+        >
+          <span className="text-icon">T</span>
+        </button>
+
+        <button className="tool-button" title="Add link card">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button className="tool-button" title="Add YouTube video">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 16.5l6-4.5-6-4.5v9zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button className="tool-button" title="Add group">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 11h5V5H4v6zm0 7h5v-6H4v6zm6 0h5v-6h-5v6zm6 0h5v-6h-5v6zm-6-7h5V5h-5v6zm6-6v6h5V5h-5z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button
+          className={`tool-button ${activeTool === 'shape' ? 'active' : ''}`}
+          title="Shape tool"
+          onClick={() => setTool('shape')}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </button>
+
+        <button
+          className={`tool-button ${isConnectingMode || activeTool === 'connect' ? 'active' : ''}`}
+          title="Add arrow"
+          onClick={handleToggleConnection}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16.01 11H4v2h12.01v3L20 12l-3.99-4z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+
+      <div className="separator"></div>
+
+      <div className="toolbar-group">
+        <button className="tool-button" title="Undo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12.5 8C9.85 8 7.45 8.99 5.6 10.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <button className="tool-button" title="Redo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default LeftToolbar;

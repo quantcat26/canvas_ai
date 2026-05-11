@@ -1,0 +1,83 @@
+.ai-chat-card {
+  position: absolute;
+  width: 320px;
+  max-width: 90vw;
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  transition: transform 0.2s ease;
+  transform-origin: center center;
+}
+
+.ai-chat-card.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+
+.ai-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eaeaea;
+  background-color: #f7f7f7;
+  user-select: none;
+}
+
+.ai-chat-source {
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+}
+
+.ai-chat-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ai-chat-actions button {
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-to-canvas-btn {
+  background-color: #e8f4ff;
+  color: #0066cc;
+}
+
+.add-to-canvas-btn:hover {
+  background-color: #d4eaff;
+}
+
+.close-btn {
+  color: #666;
+  font-size: 14px;
+}
+
+.close-btn:hover {
+  color: #222;
+  background-color: #eee;
+}
+
+.ai-chat-content {
+  padding: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+  overflow-y: auto;
+  max-height: 60vh;
+  white-space: normal; /* Keep normal to support Markdown */
+}

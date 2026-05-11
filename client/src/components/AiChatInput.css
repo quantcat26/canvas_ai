@@ -1,0 +1,246 @@
+/* AI chat input styles */
+.bottom-bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: auto;
+  display: flex;
+  justify-content: center;
+  animation: bottomBarFloat 0.45s ease;
+}
+
+.ai-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(720px, 92vw);
+}
+
+.ai-input-container {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  width: min(720px, 92vw);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+  position: relative;
+  border: 1px solid rgba(230, 233, 240, 0.9);
+}
+
+.ai-input-container.active {
+  background-color: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.16);
+}
+
+.selected-card-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(230, 233, 240, 0.9);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
+  font-size: 12px;
+  color: #1f2a37;
+  max-width: 100%;
+}
+
+.selected-card-label {
+  font-weight: 600;
+  color: #2f6bff;
+}
+
+.selected-card-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+.selected-card-count {
+  background: rgba(47, 107, 255, 0.12);
+  color: #2f6bff;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.ai-textarea {
+  flex-grow: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 42px;
+  max-height: 200px;
+  padding: 6px 0;
+  overflow-y: auto;
+  color: #333;
+  font-family: inherit;
+}
+
+.input-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcut-hint {
+  font-size: 12px;
+  color: #888;
+  background-color: #eef2ff;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.send-btn {
+  background-color: #2f6bff;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  width: 38px;
+  height: 38px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.send-btn:hover:not(:disabled) {
+  background-color: #1e57e8;
+}
+
+.send-btn:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.service-selector-btn {
+  background-color: #f0f4ff;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: #2f3a4a;
+}
+
+.service-selector-btn:hover {
+  background-color: #e5e5e5;
+}
+
+.service-indicator {
+  font-weight: bold;
+  text-transform: none;
+}
+
+/* Service selector styles */
+.service-selector {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+  min-width: 340px;
+  max-width: 90vw;
+  z-index: 110;
+  overflow: hidden;
+  border: 1px solid rgba(230, 233, 240, 0.9);
+}
+
+.service-selector-header {
+  padding: 12px 14px;
+  font-weight: 600;
+  border-bottom: 1px solid #eee;
+  background-color: #f8f8f8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.model-manage-btn {
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #2f3a4a;
+}
+
+.model-list {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-empty {
+  padding: 14px;
+  font-size: 12px;
+  color: #667085;
+}
+
+.model-option {
+  border: none;
+  background: transparent;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.model-option:hover {
+  background: rgba(47, 107, 255, 0.08);
+}
+
+.model-option.selected {
+  background: rgba(47, 107, 255, 0.12);
+}
+
+.model-option-name {
+  font-weight: 600;
+  color: #101828;
+  font-size: 13px;
+}
+
+.model-option-meta {
+  font-size: 12px;
+  color: #667085;
+}
+
+.model-option-base {
+  font-size: 11px;
+  color: #98a2b3;
+}
+
+@keyframes bottomBarFloat {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+

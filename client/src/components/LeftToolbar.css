@@ -1,0 +1,120 @@
+.left-toolbar {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 12px;
+  padding: 8px;
+  border: 1px solid rgba(230, 233, 240, 0.9);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+  z-index: 100;
+  animation: toolbarFloat 0.45s ease;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tool-button {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #1f2a37;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative; /* Add relative positioning for the tooltip */
+}
+
+/* Tooltip styles for left toolbar buttons only */
+.left-toolbar .tool-button::after {
+  content: attr(title); /* Use the button title attribute as the tooltip text */
+  position: absolute;
+  left: 46px; /* Position the tooltip to the right of the button */
+  top: 50%;
+  transform: translateY(-50%);
+  background-color: rgba(0, 0, 0, 0.75);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  pointer-events: none; /* Prevent the tooltip from interfering with mouse events */
+  z-index: 101;
+}
+
+/* Show the tooltip on hover for left toolbar buttons only */
+.left-toolbar .tool-button:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Add a small arrow pointing to the button, left toolbar only */
+.left-toolbar .tool-button::before {
+  content: "";
+  position: absolute;
+  left: 42px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: 4px 4px 4px 0;
+  border-style: solid;
+  border-color: transparent rgba(0, 0, 0, 0.75) transparent transparent;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  pointer-events: none;
+}
+
+/* Show the arrow on hover for left toolbar buttons only */
+.left-toolbar .tool-button:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+.tool-button:hover {
+  background-color: rgba(47, 107, 255, 0.12);
+  color: #1f2a37;
+}
+
+/* Active state styling */
+.tool-button.active {
+  background-color: rgba(47, 107, 255, 0.18);
+  color: #2f6bff;
+  box-shadow: inset 0 0 0 2px rgba(47, 107, 255, 0.45);
+}
+
+.text-icon {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.separator {
+  height: 1px;
+  background-color: rgba(0, 0, 0, 0.1);
+  margin: 4px 0;
+}
+
+@keyframes toolbarFloat {
+  from {
+    opacity: 0;
+    transform: translateY(-48%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
+}
