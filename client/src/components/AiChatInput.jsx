@@ -44,7 +44,7 @@ const AiChatInput = ({
     const textArea = textAreaRef.current;
     if (!textArea) return;
 
-    if (inputText.length === 0) {
+    if (textArea.value.length === 0) {
       textArea.style.height = '42px';
       return;
     }
@@ -85,6 +85,25 @@ const AiChatInput = ({
   useEffect(() => {
     syncTextareaHeight();
   }, [inputText]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      const isShortcut = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
+      if (!isShortcut) return;
+
+      e.preventDefault();
+
+      const textArea = textAreaRef.current;
+      if (!textArea || isLoading) return;
+
+      setShowServiceSelector(false);
+      textArea.focus();
+      syncTextareaHeight();
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isLoading]);
 
   const handleFocus = () => {
     setIsInputFocused(true);
@@ -155,7 +174,7 @@ const AiChatInput = ({
           <textarea
             ref={textAreaRef}
             className="ai-input ai-textarea"
-            placeholder="Ask AI Anything..."
+            placeholder="Ask AI Anything... ⌘K"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -187,7 +206,6 @@ const AiChatInput = ({
               )}
             </button>
 
-            {!isInputFocused && <div className="shortcut-hint">⌘K</div>}
           </div>
         </div>
       </div>
