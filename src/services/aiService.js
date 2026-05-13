@@ -28,7 +28,7 @@ const extractProviderErrorDetails = (data) => {
 };
 
 class AIService {
-  async askOpenAICompatible({ message, model, provider }) {
+  async askOpenAICompatible({ message, model, systemPrompt, temperature, maxTokens, provider }) {
     const baseUrl = normalizeBaseUrl(provider.baseUrl);
     const path = normalizePath(provider.path || '/chat/completions');
     const url = `${baseUrl}${path}`;
@@ -44,13 +44,29 @@ class AIService {
       headers[headerName] = headerPrefix ? `${headerPrefix}${provider.apiKey}` : provider.apiKey;
     }
 
+    const messages = [];
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+    messages.push({ role: 'user', content: message });
+
+    const payload = {
+      model,
+      messages,
+    };
+
+    if (temperature !== null && temperature !== undefined) {
+      payload.temperature = temperature;
+    }
+
+    if (maxTokens !== null && maxTokens !== undefined) {
+      payload.max_tokens = maxTokens;
+    }
+
     try {
       const response = await axios.post(
         url,
-        {
-          model,
-          messages: [{ role: 'user', content: message }],
-        },
+        payload,
         { headers },
       );
 
