@@ -40,6 +40,19 @@ const AiChatInput = ({
     return configs.find((item) => item.id === activeConfigId) || null;
   }, [configs, activeConfigId]);
 
+  const syncTextareaHeight = () => {
+    const textArea = textAreaRef.current;
+    if (!textArea) return;
+
+    if (inputText.length === 0) {
+      textArea.style.height = '42px';
+      return;
+    }
+
+    textArea.style.height = 'auto';
+    textArea.style.height = `${textArea.scrollHeight}px`;
+  };
+
   const handleSubmit = () => {
     if (isLoading) return;
 
@@ -70,26 +83,12 @@ const AiChatInput = ({
   };
 
   useEffect(() => {
-    const textArea = textAreaRef.current;
-    if (textArea && isInputFocused) {
-      textArea.style.height = 'auto';
-      textArea.style.height = `${textArea.scrollHeight}px`;
-    } else if (textArea) {
-      textArea.style.height = '42px';
-    }
-  }, [inputText, isInputFocused]);
+    syncTextareaHeight();
+  }, [inputText]);
 
   const handleFocus = () => {
     setIsInputFocused(true);
-    if (textAreaRef.current) {
-      setTimeout(() => {
-        const textArea = textAreaRef.current;
-        if (textArea) {
-          textArea.style.height = 'auto';
-          textArea.style.height = `${textArea.scrollHeight / 1.75}px`;
-        }
-      }, 0);
-    }
+    syncTextareaHeight();
   };
 
   const toggleServiceSelector = () => {
@@ -157,7 +156,7 @@ const AiChatInput = ({
             ref={textAreaRef}
             className="ai-input ai-textarea"
             placeholder="Ask AI Anything..."
-            value={isInputFocused ? inputText : ''}
+            value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={handleFocus}
