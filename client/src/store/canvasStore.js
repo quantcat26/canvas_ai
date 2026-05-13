@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 
+const HISTORY_LIMIT = 100;
+
+const cloneSnapshot = (snapshot) => {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(snapshot);
+  }
+  return JSON.parse(JSON.stringify(snapshot));
+};
+
 const useCanvasStore = create((set, get) => ({
   zoom: 1,
   panX: 0,
@@ -10,6 +19,8 @@ const useCanvasStore = create((set, get) => ({
   selectedCardIds: [],
   selectedConnectionIds: [],
   isConnectingMode: false,
+  history: [],
+  future: [],
 
   zoomIn: () => set((state) => ({ zoom: state.zoom * 1.2 })),
   zoomOut: () => set((state) => ({ zoom: state.zoom / 1.2 })),
@@ -85,7 +96,51 @@ const useCanvasStore = create((set, get) => ({
 
   toggleConnectingMode: () => set((state) => ({ isConnectingMode: !state.isConnectingMode })),
 
+  recordHistory: () => {
+    const { history, cards, connections } = get();
+    const snapshot = cloneSnapshot({ cards, connections });
+    const nextHistory = [...history, snapshot].slice(-HISTORY_LIMIT);
+    set({ history: nextHistory, future: [] });
+  },
+
+  undo: () => {
+    const { history, future, cards, connections } = get();
+    if (history.length === 0) return;
+
+    const previous = history[history.length - 1];
+    const currentSnapshot = cloneSnapshot({ cards, connections });
+    const restored = cloneSnapshot(previous);
+
+    set({
+      cards: restored.cards,
+      connections: restored.connections,
+      history: history.slice(0, -1),
+      future: [...future, currentSnapshot],
+      selectedCardIds: [],
+      selectedConnectionIds: [],
+    });
+  },
+
+  redo: () => {
+    const { history, future, cards, connections } = get();
+    if (future.length === 0) return;
+
+    const next = future[future.length - 1];
+    const currentSnapshot = cloneSnapshot({ cards, connections });
+    const restored = cloneSnapshot(next);
+
+    set({
+      cards: restored.cards,
+      connections: restored.connections,
+      history: [...history, currentSnapshot].slice(-HISTORY_LIMIT),
+      future: future.slice(0, -1),
+      selectedCardIds: [],
+      selectedConnectionIds: [],
+    });
+  },
+
   addCard: (card) => {
+    get().recordHistory();
     const id = uuidv4();
     set((state) => ({
       cards: {
@@ -96,14 +151,24 @@ const useCanvasStore = create((set, get) => ({
     return id;
   },
 
-  updateCard: (cardId, updates) => set((state) => ({
-    cards: {
-      ...state.cards,
-      [cardId]: { ...state.cards[cardId], ...updates },
-    },
-  })),
+  updateCard: (cardId, updates, options = {}) => {
+    if (!options.skipHistory) {
+      get().recordHistory();
+    }
 
-  removeCard: (cardId) => set((state) => {
+    set((state) => ({
+      cards: {
+        ...state.cards,
+        [cardId]: { ...state.cards[cardId], ...updates },
+      },
+    }));
+  },
+
+  removeCard: (cardId, options = {}) => {
+    if (!options.skipHistory) {
+      get().recordHistory();
+    }
+    set((state) => {
     const { [cardId]: _, ...remainingCards } = state.cards;
 
     const remainingConnections = { ...state.connections };
@@ -114,16 +179,18 @@ const useCanvasStore = create((set, get) => ({
       }
     });
 
-    return {
-      cards: remainingCards,
-      connections: remainingConnections,
-      selectedCardIds: state.selectedCardIds.filter((id) => id !== cardId),
-    };
-  }),
+      return {
+        cards: remainingCards,
+        connections: remainingConnections,
+        selectedCardIds: state.selectedCardIds.filter((id) => id !== cardId),
+      };
+    });
+  },
 
   selectCards: (cardIds) => set({ selectedCardIds: cardIds }),
 
   addConnection: (connection) => {
+    get().recordHistory();
     const id = uuidv4();
     set((state) => ({
       connections: {
@@ -134,20 +201,31 @@ const useCanvasStore = create((set, get) => ({
     return id;
   },
 
-  updateConnection: (connectionId, updates) => set((state) => ({
-    connections: {
-      ...state.connections,
-      [connectionId]: { ...state.connections[connectionId], ...updates },
-    },
-  })),
+  updateConnection: (connectionId, updates, options = {}) => {
+    if (!options.skipHistory) {
+      get().recordHistory();
+    }
 
-  removeConnection: (connectionId) => set((state) => {
+    set((state) => ({
+      connections: {
+        ...state.connections,
+        [connectionId]: { ...state.connections[connectionId], ...updates },
+      },
+    }));
+  },
+
+  removeConnection: (connectionId, options = {}) => {
+    if (!options.skipHistory) {
+      get().recordHistory();
+    }
+    set((state) => {
     const { [connectionId]: _, ...remainingConnections } = state.connections;
     return {
       connections: remainingConnections,
       selectedConnectionIds: state.selectedConnectionIds.filter((id) => id !== connectionId),
     };
-  }),
+    });
+  },
 
   selectConnections: (connectionIds) => set({ selectedConnectionIds: connectionIds }),
 
@@ -157,6 +235,8 @@ const useCanvasStore = create((set, get) => ({
     ...state,
     selectedCardIds: [],
     selectedConnectionIds: [],
+    history: [],
+    future: [],
   })),
 }));
 

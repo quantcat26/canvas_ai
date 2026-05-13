@@ -1,9 +1,26 @@
 import React, { useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import './LeftToolbar.css';
 import useCanvasStore from '../store/canvasStore.js';
 
 const LeftToolbar = () => {
-  const { addCard, toggleConnectingMode, isConnectingMode } = useCanvasStore();
+  const {
+    addCard,
+    toggleConnectingMode,
+    isConnectingMode,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useCanvasStore(useShallow((state) => ({
+    addCard: state.addCard,
+    toggleConnectingMode: state.toggleConnectingMode,
+    isConnectingMode: state.isConnectingMode,
+    undo: state.undo,
+    redo: state.redo,
+    canUndo: state.history.length > 0,
+    canRedo: state.future.length > 0,
+  })));
   const [activeTool, setActiveTool] = useState('select');
 
   const setTool = (tool) => {
@@ -185,13 +202,25 @@ const LeftToolbar = () => {
       <div className="separator"></div>
 
       <div className="toolbar-group">
-        <button className="tool-button" title="Undo">
+        <button
+          className="tool-button"
+          title="Undo"
+          onClick={undo}
+          disabled={!canUndo}
+          aria-disabled={!canUndo}
+        >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M12.5 8C9.85 8 7.45 8.99 5.6 10.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" fill="currentColor"/>
           </svg>
         </button>
 
-        <button className="tool-button" title="Redo">
+        <button
+          className="tool-button"
+          title="Redo"
+          onClick={redo}
+          disabled={!canRedo}
+          aria-disabled={!canRedo}
+        >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" fill="currentColor"/>
           </svg>

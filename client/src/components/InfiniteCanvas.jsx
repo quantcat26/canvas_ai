@@ -35,6 +35,8 @@ const InfiniteCanvas = () => {
   const [cardStartPos, setCardStartPos] = useState({ x: 0, y: 0 });
   const [activeEdge, setActiveEdge] = useState(null);
   const [cursorStyle, setCursorStyle] = useState('default');
+  const dragHistoryRecordedRef = useRef(false);
+  const resizeHistoryRecordedRef = useRef(false);
 
   const {
     zoom, panX, panY,
@@ -42,6 +44,7 @@ const InfiniteCanvas = () => {
     selectedCardIds, selectedConnectionIds,
     isConnectingMode, setPan, setZoom, updateCard, selectCards,
     clearSelection, selectConnections, updateConnection, addCard, removeCard,
+    recordHistory, undo, redo,
   } = useCanvasStore();
 
   const selectedCard = selectedCardIds.length === 1 ? cards[selectedCardIds[0]] : null;
@@ -88,6 +91,10 @@ const InfiniteCanvas = () => {
       }
 
       if (isDraggingCard && draggedCardId && e.evt.buttons === 1) {
+        if (!dragHistoryRecordedRef.current) {
+          recordHistory();
+          dragHistoryRecordedRef.current = true;
+        }
         const deltaX = (pointerPos.x - dragStartPos.x) / zoom;
         const deltaY = (pointerPos.y - dragStartPos.y) / zoom;
 
@@ -100,6 +107,10 @@ const InfiniteCanvas = () => {
       }
 
       if (isResizingCard && resizingCardId && resizeType) {
+        if (!resizeHistoryRecordedRef.current) {
+          recordHistory();
+          resizeHistoryRecordedRef.current = true;
+        }
         const card = cards[resizingCardId];
         if (!card) return;
 
@@ -130,10 +141,14 @@ const InfiniteCanvas = () => {
           newHeight = Math.max(50, cardInitialSize.height + deltaY);
         }
 
-        updateCard(resizingCardId, {
-          size: { width: newWidth, height: newHeight },
-          position: { x: newX, y: newY },
-        });
+        updateCard(
+          resizingCardId,
+          {
+            size: { width: newWidth, height: newHeight },
+            position: { x: newX, y: newY },
+          },
+          { skipHistory: true },
+        );
       }
 
       if (!isDraggingCard && !isResizingCard && selectedCardIds.length > 0) {
@@ -207,18 +222,26 @@ const InfiniteCanvas = () => {
       selectedCardIds.forEach((selectedId) => {
         const selected = cards[selectedId];
         if (selected) {
-          updateCard(selectedId, {
-            position: {
-              x: selected.position.x + deltaX,
-              y: selected.position.y + deltaY,
+          updateCard(
+            selectedId,
+            {
+              position: {
+                x: selected.position.x + deltaX,
+                y: selected.position.y + deltaY,
+              },
             },
-          });
+            { skipHistory: true },
+          );
         }
       });
     } else {
-      updateCard(cardId, {
-        position: { x, y },
-      });
+      updateCard(
+        cardId,
+        {
+          position: { x, y },
+        },
+        { skipHistory: true },
+      );
     }
 
     Object.values(connections).forEach((connection) => {
@@ -228,10 +251,14 @@ const InfiniteCanvas = () => {
 
         if (startCard && endCard) {
           const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
-          updateConnection(connection.id, {
-            startPoint,
-            endPoint,
-          });
+          updateConnection(
+            connection.id,
+            {
+              startPoint,
+              endPoint,
+            },
+            { skipHistory: true },
+          );
         }
       }
     });
@@ -369,6 +396,8 @@ const InfiniteCanvas = () => {
     setIsResizingCard(false);
     setResizingCardId(null);
     setResizeType(null);
+    dragHistoryRecordedRef.current = false;
+    resizeHistoryRecordedRef.current = false;
   };
 
   const handleCardClick = (cardId, e) => {
@@ -475,16 +504,42 @@ const InfiniteCanvas = () => {
     const handleKeyDown = (e) => {
       if (editingCardId) return;
 
+      const isModifierPressed = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      const isUndoShortcut = isModifierPressed && key === 'z' && !e.shiftKey;
+      const isRedoShortcut = isModifierPressed && (key === 'y' || (key === 'z' && e.shiftKey));
+      const target = e.target;
+      const isTypingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      if ((isUndoShortcut || isRedoShortcut) && isTypingTarget) {
+        return;
+      }
+
+      if (isUndoShortcut) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if (isRedoShortcut) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
       if ((e.key === 'Delete' || e.key === 'Backspace') &&
           (selectedCardIds.length > 0 || selectedConnectionIds.length > 0)) {
+        const { recordHistory } = useCanvasStore.getState();
+        recordHistory();
+
         selectedCardIds.forEach((id) => {
           const { removeCard } = useCanvasStore.getState();
-          removeCard(id);
+          removeCard(id, { skipHistory: true });
         });
 
         selectedConnectionIds.forEach((id) => {
           const { removeConnection } = useCanvasStore.getState();
-          removeConnection(id);
+          removeConnection(id, { skipHistory: true });
         });
 
         clearSelection();
@@ -495,7 +550,7 @@ const InfiniteCanvas = () => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [selectedCardIds, selectedConnectionIds, editingCardId, clearSelection]);
+  }, [selectedCardIds, selectedConnectionIds, editingCardId, clearSelection, undo, redo]);
 
   const loadImage = (src) => {
     if (imageCache.has(src)) {
