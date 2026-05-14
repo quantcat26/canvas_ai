@@ -364,6 +364,7 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
     const renderNodes = [];
     const maxWidth = Math.max(40, width);
     let keyCounter = 0;
+    let overflowDetected = false;
     const nextKey = (label) => `${label}-${keyCounter++}`;
     const baseStyle = {
       fontSize: BASE_FONT_SIZE,
@@ -435,10 +436,14 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
       let cursorY = startY;
 
       blockList.forEach((block, blockIndex) => {
-        if (cursorY > height) return;
+        if (cursorY > height) {
+          overflowDetected = true;
+          return;
+        }
 
         if (block.type === 'space') {
           cursorY += block.size;
+          if (cursorY > height) overflowDetected = true;
           return;
         }
 
@@ -454,6 +459,7 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
             />
           );
           cursorY += 12;
+          if (cursorY > height) overflowDetected = true;
           return;
         }
 
@@ -472,6 +478,7 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
               cursorY += 8;
             }
           });
+          if (cursorY > height) overflowDetected = true;
           return;
         }
 
@@ -534,6 +541,7 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
             });
 
             cursorY += 6;
+            if (cursorY > height) overflowDetected = true;
           });
           return;
         }
@@ -578,6 +586,7 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
           });
 
           cursorY += blockHeight + 8;
+          if (cursorY > height) overflowDetected = true;
           return;
         }
 
@@ -640,9 +649,11 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
             });
 
             cursorY += rowHeight;
+          if (cursorY > height) overflowDetected = true;
           });
 
           cursorY += 10;
+        if (cursorY > height) overflowDetected = true;
         }
       });
 
@@ -650,6 +661,42 @@ const MarkdownCard = ({ content, x = 0, y = 0, width = 200, height = 120 }) => {
     };
 
     renderBlockList(blocks, 0, 0, maxWidth);
+
+    if (overflowDetected) {
+      renderNodes.push(
+        <Rect
+          key={nextKey('overflow-fade')}
+          x={0}
+          y={Math.max(0, height - 34)}
+          width={maxWidth}
+          height={34}
+          fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+          fillLinearGradientEndPoint={{ x: 0, y: 34 }}
+          fillLinearGradientColorStops={[
+            0,
+            'rgba(255,255,255,0)',
+            1,
+            'rgba(255,255,255,0.96)',
+          ]}
+          listening={false}
+        />
+      );
+
+      renderNodes.push(
+        <Text
+          key={nextKey('overflow-hint')}
+          x={0}
+          y={Math.max(0, height - 12)}
+          width={maxWidth}
+          text="More content below"
+          fontSize={11}
+          fontFamily={FONT_FAMILY}
+          fill="#64748b"
+          align="center"
+          listening={false}
+        />
+      );
+    }
 
     return renderNodes;
   }, [blocks, height, width]);

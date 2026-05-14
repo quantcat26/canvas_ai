@@ -792,7 +792,7 @@ const InfiniteCanvas = () => {
     });
   };
 
-  const handleAutoResize = () => {
+  const handleResize = () => {
     if (!selectedCard || selectedCard.type !== 'text') return;
     const content = selectedCard.content || '';
     const lines = content.split('\n').length || 1;
@@ -1008,8 +1008,8 @@ const InfiniteCanvas = () => {
           <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
             {selectedCard.collapsed ? 'Expand' : 'Collapse'}
           </button>
-          <button className={styles.cardOptionButton} onClick={handleAutoResize}>
-            Auto resize
+          <button className={styles.cardOptionButton} onClick={handleResize}>
+            Resize
           </button>
           <button className={styles.cardOptionButton} onClick={handleCopyCard}>
             Copy
