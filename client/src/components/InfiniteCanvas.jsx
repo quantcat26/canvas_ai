@@ -7,6 +7,115 @@ import ZoomControls from './ZoomControls.jsx';
 
 const imageCache = new Map();
 const RESIZE_EDGE_SENSITIVITY = 8;
+const CARD_TEXT_FONT_SIZE = 14;
+const CARD_TEXT_LINE_HEIGHT = 1.5;
+const CARD_CONTENT_PADDING = 20;
+const AUTO_RESIZE_MIN_HEIGHT = 160;
+const AUTO_RESIZE_MAX_HEIGHT = 620;
+
+const textMeasureContext = typeof document !== 'undefined'
+  ? document.createElement('canvas').getContext('2d')
+  : null;
+
+const measureTextWidth = (text) => {
+  if (!textMeasureContext) return text.length * CARD_TEXT_FONT_SIZE * 0.6;
+  textMeasureContext.font = `${CARD_TEXT_FONT_SIZE}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+  return textMeasureContext.measureText(text).width;
+};
+
+const splitTextTokens = (text) => {
+  return text.match(/\s+|[A-Za-z0-9]+(?:[._'\-][A-Za-z0-9]+)*|./g) || [];
+};
+
+const splitTokenByWidth = (token, maxWidth) => {
+  const parts = [];
+  let current = '';
+
+  token.split('').forEach((char) => {
+    const next = current + char;
+    if (measureTextWidth(next) > maxWidth && current.length > 0) {
+      parts.push(current);
+      current = char;
+      return;
+    }
+    current = next;
+  });
+
+  if (current.length > 0) {
+    parts.push(current);
+  }
+
+  return parts;
+};
+
+const estimateTextCardHeight = (content, cardWidth) => {
+  const availableWidth = Math.max(40, cardWidth - CARD_CONTENT_PADDING * 2);
+  const lineHeightPx = CARD_TEXT_FONT_SIZE * CARD_TEXT_LINE_HEIGHT;
+  const lines = (content || '').split('\n');
+  let visualLineCount = 0;
+
+  lines.forEach((line) => {
+    if (!line) {
+      visualLineCount += 1;
+      return;
+    }
+
+    const tokens = splitTextTokens(line);
+    let currentWidth = 0;
+    let hasTokenInLine = false;
+
+    tokens.forEach((token, tokenIndex) => {
+      if (!token) return;
+
+      const isWhitespace = /^\s+$/.test(token);
+      if (isWhitespace) {
+        if (!hasTokenInLine) {
+          return;
+        }
+
+        const nextToken = tokens.slice(tokenIndex + 1).find((value) => !/^\s+$/.test(value));
+        if (!nextToken) {
+          return;
+        }
+
+        const spaceWidth = measureTextWidth(token);
+        const nextTokenWidth = measureTextWidth(nextToken);
+        if (currentWidth + spaceWidth + nextTokenWidth > availableWidth) {
+          visualLineCount += 1;
+          currentWidth = 0;
+          hasTokenInLine = false;
+          return;
+        }
+
+        currentWidth += spaceWidth;
+        return;
+      }
+
+      let tokenParts = [token];
+      if (measureTextWidth(token) > availableWidth) {
+        tokenParts = splitTokenByWidth(token, availableWidth);
+      }
+
+      tokenParts.forEach((part) => {
+        const partWidth = measureTextWidth(part);
+        if (currentWidth + partWidth > availableWidth && hasTokenInLine) {
+          visualLineCount += 1;
+          currentWidth = 0;
+          hasTokenInLine = false;
+        }
+
+        currentWidth += partWidth;
+        hasTokenInLine = true;
+      });
+    });
+
+    visualLineCount += hasTokenInLine ? 1 : 1;
+  });
+
+  const verticalPadding = CARD_CONTENT_PADDING * 2 - 8;
+  const estimatedHeight = visualLineCount * lineHeightPx + verticalPadding;
+  return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
+};
 
 const InfiniteCanvas = () => {
   const stageRef = useRef(null);
@@ -794,11 +903,7 @@ const InfiniteCanvas = () => {
 
   const handleResize = () => {
     if (!selectedCard || selectedCard.type !== 'text') return;
-    const content = selectedCard.content || '';
-    const lines = content.split('\n').length || 1;
-    const lineHeight = 22;
-    const padding = 70;
-    const nextHeight = Math.min(620, Math.max(160, lines * lineHeight + padding));
+    const nextHeight = estimateTextCardHeight(selectedCard.content || '', selectedCard.size.width);
 
     updateCard(selectedCard.id, {
       collapsed: false,
