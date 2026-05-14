@@ -25,7 +25,6 @@ const InfiniteCanvas = () => {
   const [editingCardId, setEditingCardId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const textareaRef = useRef(null);
-  const [lastSelectedCardId, setLastSelectedCardId] = useState(null);
   const [wasCardDragged, setWasCardDragged] = useState(false);
   const dragStartTimeRef = useRef(0);
   const dragThresholdTime = 300;
@@ -460,24 +459,29 @@ const InfiniteCanvas = () => {
       return;
     }
 
-    const isSecondClickOnSameCard = cardId === lastSelectedCardId;
-
-    if (isSecondClickOnSameCard && card.type === 'text') {
-      setEditingCardId(cardId);
-      if (card.content === 'Click to edit text content') {
-        setEditingText('');
-      } else {
-        setEditingText(card.content || '');
-      }
+    if (card.type === 'text') {
+      selectCards([cardId]);
     }
+  };
 
-    setLastSelectedCardId(cardId);
+  const handleCardDoubleClick = (cardId, e) => {
+    e.evt.stopPropagation();
+
+    const card = cards[cardId];
+    if (!card || card.type !== 'text') return;
+
+    selectCards([cardId]);
+    setEditingCardId(cardId);
+    if (card.content === 'Click to edit text content') {
+      setEditingText('');
+    } else {
+      setEditingText(card.content || '');
+    }
   };
 
   const handleStageClick = (e) => {
     if (e.target === e.target.getStage() || e.target.name() === 'background-rect') {
       clearSelection();
-      setLastSelectedCardId(null);
     }
   };
 
@@ -917,6 +921,7 @@ const InfiniteCanvas = () => {
               draggable={false}
               onMouseDown={(e) => handleCardMouseDown(card.id, e)}
               onClick={(e) => handleCardClick(card.id, e)}
+              onDblClick={(e) => handleCardDoubleClick(card.id, e)}
               onTap={() => selectCards([card.id])}
               rotation={card.angle || 0}
             >
