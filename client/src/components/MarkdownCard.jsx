@@ -85,7 +85,7 @@ const resolveFontStyle = (bold, italic, baseStyle = 'normal') => {
 };
 
 const splitTokens = (text) => {
-  return text.split(/(\s+)/).filter((token) => token.length > 0);
+  return text.match(/\s+|[A-Za-z0-9]+(?:[._'\-][A-Za-z0-9]+)*|./g) || [];
 };
 
 const isWhitespaceToken = (token) => /^\s+$/.test(token);
@@ -141,7 +141,7 @@ const layoutInline = (text, maxWidth, baseStyle, codeStyle, codePadding) => {
         };
       const tokens = isCode ? [run.text] : splitTokens(run.text);
 
-      tokens.forEach((token) => {
+      tokens.forEach((token, tokenIndex) => {
         if (!token) return;
 
         if (!isCode && isWhitespaceToken(token)) {
@@ -150,7 +150,13 @@ const layoutInline = (text, maxWidth, baseStyle, codeStyle, codePadding) => {
           }
 
           const rawWidth = measureTextWidth(token, style);
-          if (currentLine.width + rawWidth > maxWidth) {
+          const nextToken = tokens.slice(tokenIndex + 1).find((value) => !isWhitespaceToken(value));
+          if (!nextToken) {
+            return;
+          }
+
+          const nextTokenWidth = measureTextWidth(nextToken, style);
+          if (currentLine.width + rawWidth + nextTokenWidth > maxWidth) {
             pushLine();
             return;
           }
@@ -167,20 +173,14 @@ const layoutInline = (text, maxWidth, baseStyle, codeStyle, codePadding) => {
         }
 
         const tokenWidth = measureTextWidth(token, style);
-        const remainingWidth = maxWidth - currentLine.width;
-        let tokenParts = [token];
 
-        if (!isCode && currentLine.tokens.length > 0 && tokenWidth > remainingWidth && remainingWidth > 0) {
-          const firstParts = splitByWidth(token, style, remainingWidth);
-          const firstPart = firstParts[0];
-          if (firstPart && firstPart.length < token.length) {
-            const remainder = token.slice(firstPart.length);
-            tokenParts = [firstPart, ...splitByWidth(remainder, style, maxWidth)];
-          }
+        if (currentLine.width + tokenWidth > maxWidth && currentLine.tokens.length > 0) {
+          pushLine();
         }
 
-        if (tokenParts.length === 1 && measureTextWidth(tokenParts[0], style) > maxWidth) {
-          tokenParts = splitByWidth(tokenParts[0], style, maxWidth);
+        let tokenParts = [token];
+        if (measureTextWidth(token, style) > maxWidth) {
+          tokenParts = splitByWidth(token, style, maxWidth);
         }
 
         tokenParts.forEach((part) => {
