@@ -1,6 +1,5 @@
-import fs from 'fs/promises';
-import path from 'path';
 import crypto from 'crypto';
+import { ensureMigrated, getDb } from './db.js';
 
 const ENCRYPT_PREFIX = 'enc:v1:';
 const KEY_SALT = 'canvas_ai_ai_config_v1';
@@ -44,93 +43,139 @@ const ensureEncrypted = (value) => {
 };
 
 class AiConfigService {
-  constructor() {
-    const dataDir = path.join(process.cwd(), 'data');
-    this.dataFile = path.join(dataDir, 'ai-configs.json');
-  }
-
-  async ensureDataFile() {
-    const dir = path.dirname(this.dataFile);
-    await fs.mkdir(dir, { recursive: true });
-    try {
-      await fs.access(this.dataFile);
-    } catch {
-      const initial = { configs: [], activeConfigId: '' };
-      await fs.writeFile(this.dataFile, JSON.stringify(initial, null, 2), 'utf-8');
-    }
-  }
-
   async load() {
-    await this.ensureDataFile();
-    const raw = await fs.readFile(this.dataFile, 'utf-8');
-    try {
-      const parsed = JSON.parse(raw);
-      const configs = Array.isArray(parsed?.configs) ? parsed.configs : [];
-      const decryptedConfigs = configs.map((config) => {
-        if (!config || typeof config !== 'object') return config;
-        try {
-          return {
-            ...config,
-            apiKey: decryptValue(config.apiKey || ''),
-          };
-        } catch (error) {
-          console.warn('Failed to decrypt AI settings. Please re-enter the API key.', error);
-          return {
-            ...config,
-            apiKey: '',
-          };
-        }
-      });
+    await ensureMigrated();
+    const db = await getDb();
 
-      return {
-        configs: decryptedConfigs,
-        activeConfigId: typeof parsed?.activeConfigId === 'string' ? parsed.activeConfigId : '',
-      };
-    } catch (error) {
-      console.error('Failed to parse the AI settings file; resetting to empty.', error);
-      return { configs: [], activeConfigId: '' };
-    }
+    const rows = db.prepare(`
+      SELECT
+        id, name, base_url, model, api_key_enc, system_prompt,
+        temperature, max_tokens, path, header_name, header_prefix
+      FROM ai_config
+    `).all();
+
+    const activeRow = db.prepare(`
+      SELECT value FROM app_setting WHERE key = 'activeConfigId'
+    `).get();
+
+    const decryptedConfigs = rows.map((row) => {
+      try {
+        return {
+          id: row.id,
+          name: row.name,
+          baseUrl: row.base_url,
+          model: row.model,
+          apiKey: decryptValue(row.api_key_enc || ''),
+          systemPrompt: row.system_prompt || '',
+          temperature: row.temperature ?? null,
+          maxTokens: row.max_tokens ?? null,
+          path: row.path || '/chat/completions',
+          headerName: row.header_name || 'Authorization',
+          headerPrefix: row.header_prefix ?? 'Bearer ',
+        };
+      } catch (error) {
+        console.warn('Failed to decrypt AI settings. Please re-enter the API key.', error);
+        return {
+          id: row.id,
+          name: row.name,
+          baseUrl: row.base_url,
+          model: row.model,
+          apiKey: '',
+          systemPrompt: row.system_prompt || '',
+          temperature: row.temperature ?? null,
+          maxTokens: row.max_tokens ?? null,
+          path: row.path || '/chat/completions',
+          headerName: row.header_name || 'Authorization',
+          headerPrefix: row.header_prefix ?? 'Bearer ',
+        };
+      }
+    });
+
+    return {
+      configs: decryptedConfigs,
+      activeConfigId: typeof activeRow?.value === 'string' ? activeRow.value : '',
+    };
   }
 
   async save(payload) {
-    await this.ensureDataFile();
+    await ensureMigrated();
+    const db = await getDb();
     const configs = Array.isArray(payload?.configs) ? payload.configs : [];
-    let existingApiKeyById = new Map();
 
-    try {
-      const raw = await fs.readFile(this.dataFile, 'utf-8');
-      const parsed = JSON.parse(raw);
-      const existingConfigs = Array.isArray(parsed?.configs) ? parsed.configs : [];
-      existingApiKeyById = new Map(
-        existingConfigs
-          .filter((config) => config && typeof config === 'object' && typeof config.id === 'string')
-          .map((config) => [config.id, config.apiKey || '']),
-      );
-    } catch (error) {
-      console.warn('Failed to read existing AI settings; the save will overwrite them.', error);
-    }
+    const existingRows = db.prepare('SELECT id, api_key_enc FROM ai_config').all();
+    const existingApiKeyById = new Map(
+      existingRows.map((row) => [row.id, row.api_key_enc || '']),
+    );
 
-    const encryptedConfigs = configs.map((config) => {
-      if (!config || typeof config !== 'object') return config;
-      const incomingKey = typeof config.apiKey === 'string' ? config.apiKey : '';
-      const existingKey = typeof config.id === 'string'
-        ? (existingApiKeyById.get(config.id) || '')
-        : '';
+    const now = new Date().toISOString();
+    const upsertConfig = db.prepare(`
+      INSERT INTO ai_config (
+        id, name, base_url, model, api_key_enc, system_prompt,
+        temperature, max_tokens, path, header_name, header_prefix,
+        created_at, updated_at
+      ) VALUES (
+        @id, @name, @baseUrl, @model, @apiKeyEnc, @systemPrompt,
+        @temperature, @maxTokens, @path, @headerName, @headerPrefix,
+        @createdAt, @updatedAt
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        base_url = excluded.base_url,
+        model = excluded.model,
+        api_key_enc = excluded.api_key_enc,
+        system_prompt = excluded.system_prompt,
+        temperature = excluded.temperature,
+        max_tokens = excluded.max_tokens,
+        path = excluded.path,
+        header_name = excluded.header_name,
+        header_prefix = excluded.header_prefix,
+        updated_at = excluded.updated_at
+    `);
 
-      return {
-        ...config,
-        apiKey: incomingKey ? encryptValue(incomingKey) : ensureEncrypted(existingKey),
-      };
+    const saveConfigs = db.transaction((items) => {
+      items.forEach((config) => {
+        if (!config || typeof config !== 'object') return;
+        const incomingKey = typeof config.apiKey === 'string' ? config.apiKey : '';
+        const existingKey = typeof config.id === 'string'
+          ? (existingApiKeyById.get(config.id) || '')
+          : '';
+        const apiKeyEnc = incomingKey
+          ? encryptValue(incomingKey)
+          : ensureEncrypted(existingKey);
+
+        upsertConfig.run({
+          id: config.id,
+          name: config.name,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          apiKeyEnc,
+          systemPrompt: config.systemPrompt || '',
+          temperature: config.temperature ?? null,
+          maxTokens: config.maxTokens ?? null,
+          path: config.path || '/chat/completions',
+          headerName: config.headerName || 'Authorization',
+          headerPrefix: config.headerPrefix ?? 'Bearer ',
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
     });
 
-    const next = {
-      configs: encryptedConfigs,
-      activeConfigId: typeof payload?.activeConfigId === 'string' ? payload.activeConfigId : '',
-    };
-    await fs.writeFile(this.dataFile, JSON.stringify(next, null, 2), 'utf-8');
+    saveConfigs(configs);
+
+    const activeConfigId = typeof payload?.activeConfigId === 'string'
+      ? payload.activeConfigId
+      : '';
+
+    db.prepare(`
+      INSERT INTO app_setting (key, value)
+      VALUES ('activeConfigId', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(activeConfigId);
+
     return {
       configs,
-      activeConfigId: next.activeConfigId,
+      activeConfigId,
     };
   }
 }
