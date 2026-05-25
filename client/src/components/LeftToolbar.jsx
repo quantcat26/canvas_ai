@@ -33,6 +33,28 @@ const LeftToolbar = () => {
     if (isConnectingMode) toggleConnectingMode();
   };
 
+  const getFilePreviewType = (file) => {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type === 'application/pdf') return 'pdf';
+    if (file.type.startsWith('text/')) return 'text';
+    return 'file';
+  };
+
+  const getFileCardSize = (previewType) => {
+    switch (previewType) {
+      case 'image':
+        return { width: 180, height: 180 };
+      case 'video':
+      case 'pdf':
+        return { width: 320, height: 220 };
+      case 'text':
+        return { width: 300, height: 220 };
+      default:
+        return { width: 200, height: 160 };
+    }
+  };
+
   const handleAddTextCard = () => {
     setTool('card');
     const defaultMarkdownContent = `# Title
@@ -86,7 +108,7 @@ const LeftToolbar = () => {
     setTool('upload');
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    fileInput.accept = 'image/*,application/pdf,video/*,text/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     fileInput.style.display = 'none';
 
     fileInput.onchange = (event) => {
@@ -95,25 +117,43 @@ const LeftToolbar = () => {
       if (!file) return;
 
       const reader = new FileReader();
+      const previewType = getFilePreviewType(file);
+      const size = getFileCardSize(previewType);
 
       reader.onload = (loadEvent) => {
         const content = loadEvent.target?.result;
-        const fileType = file.type.split('/')[0] === 'image' ? 'image' : 'file';
+        const position = {
+          x: window.innerWidth / 2 - size.width / 2,
+          y: window.innerHeight / 2 - size.height / 2,
+        };
+
+        if (previewType === 'image') {
+          addCard({
+            type: 'image',
+            content: typeof content === 'string' ? content : '',
+            position,
+            size,
+            fileType: file.type,
+            fileName: file.name,
+          });
+          return;
+        }
 
         addCard({
-          type: fileType,
+          type: 'file',
           content: typeof content === 'string' ? content : '',
-          position: {
-            x: window.innerWidth / 2 - 75,
-            y: window.innerHeight / 2 - 75,
-          },
-          size: {
-            width: 150,
-            height: 150,
-          },
+          position,
+          size,
           fileType: file.type,
+          fileName: file.name,
+          previewType,
         });
       };
+
+      if (previewType === 'text') {
+        reader.readAsText(file);
+        return;
+      }
 
       reader.readAsDataURL(file);
     };

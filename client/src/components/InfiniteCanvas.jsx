@@ -681,6 +681,10 @@ const InfiniteCanvas = () => {
 
     if (fileType.startsWith('application/pdf')) {
       return '📕';
+    } else if (fileType.startsWith('video/')) {
+      return '🎬';
+    } else if (fileType.startsWith('text/')) {
+      return '📄';
     } else if (fileType.startsWith('application/msword') ||
                fileType.includes('wordprocessingml')) {
       return '📘';
@@ -700,6 +704,10 @@ const InfiniteCanvas = () => {
 
     if (fileType.startsWith('application/pdf')) {
       return 'PDF file';
+    } else if (fileType.startsWith('video/')) {
+      return 'Video file';
+    } else if (fileType.startsWith('text/')) {
+      return 'Text file';
     } else if (fileType.startsWith('application/msword') ||
                fileType.includes('wordprocessingml')) {
       return 'Word file';
@@ -713,6 +721,43 @@ const InfiniteCanvas = () => {
 
     const parts = fileType.split('/');
     return parts.length > 1 ? `${parts[1].toUpperCase()} file` : 'File';
+  };
+
+  const renderFilePreview = (card) => {
+    if (card.previewType === 'pdf') {
+      return (
+        <iframe
+          className={styles.previewFrame}
+          src={card.content}
+          title={card.fileName || 'PDF preview'}
+        />
+      );
+    }
+
+    if (card.previewType === 'video') {
+      return (
+        <video
+          className={styles.previewFrame}
+          src={card.content}
+          muted
+          loop
+          playsInline
+          autoPlay
+          preload="metadata"
+        />
+      );
+    }
+
+    if (card.previewType === 'text') {
+      const previewText = (card.content || '').slice(0, 4000);
+      return (
+        <pre className={styles.previewText}>
+          {previewText || 'Text preview is empty.'}
+        </pre>
+      );
+    }
+
+    return null;
   };
 
   const calculateConnectionPoints = (startCard, endCard) => {
@@ -938,6 +983,19 @@ const InfiniteCanvas = () => {
     clearSelection();
   };
 
+  const previewCards = useMemo(() => {
+    return Object.values(cards).filter(
+      (card) => card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType),
+    );
+  }, [cards]);
+
+  const getPreviewStyle = (card) => ({
+    left: `${card.position.x * zoom + panX}px`,
+    top: `${card.position.y * zoom + panY}px`,
+    width: `${card.size.width * zoom}px`,
+    height: `${card.size.height * zoom}px`,
+  });
+
   return (
     <div className={styles.canvasContainer} style={{ cursor: cursorStyle }}>
       {isConnectingMode && (
@@ -1078,7 +1136,7 @@ const InfiniteCanvas = () => {
                     y={55}
                     width={card.size.width}
                     height={30}
-                    text={getFileTypeName(card.fileType)}
+                    text={card.fileName || getFileTypeName(card.fileType)}
                     fontSize={16}
                     fill="#333"
                     align="center"
@@ -1101,6 +1159,16 @@ const InfiniteCanvas = () => {
           ))}
         </Layer>
       </Stage>
+
+      {previewCards.map((card) => (
+        <div
+          key={`preview-${card.id}`}
+          className={styles.cardPreviewOverlay}
+          style={getPreviewStyle(card)}
+        >
+          {renderFilePreview(card)}
+        </div>
+      ))}
 
       {selectedCard && !editingCardId && (
         <div
