@@ -139,8 +139,10 @@ const useCanvasStore = create((set, get) => ({
     });
   },
 
-  addCard: (card) => {
-    get().recordHistory();
+  addCard: (card, options = {}) => {
+    if (!options.skipHistory) {
+      get().recordHistory();
+    }
     const id = uuidv4();
     set((state) => ({
       cards: {
@@ -169,18 +171,43 @@ const useCanvasStore = create((set, get) => ({
       get().recordHistory();
     }
     set((state) => {
-    const { [cardId]: _, ...remainingCards } = state.cards;
+      const removedCard = state.cards[cardId];
+      const { [cardId]: _, ...remainingCards } = state.cards;
+      let nextCards = remainingCards;
 
-    const remainingConnections = { ...state.connections };
-    Object.keys(remainingConnections).forEach((connectionId) => {
-      const connection = remainingConnections[connectionId];
-      if (connection.startCardId === cardId || connection.endCardId === cardId) {
-        delete remainingConnections[connectionId];
+      if (removedCard?.type === 'group' && Array.isArray(removedCard.childIds)) {
+        nextCards = { ...nextCards };
+        removedCard.childIds.forEach((childId) => {
+          if (nextCards[childId]) {
+            nextCards[childId] = {
+              ...nextCards[childId],
+              groupId: null,
+            };
+          }
+        });
+      } else if (removedCard?.groupId && state.cards[removedCard.groupId]) {
+        const group = state.cards[removedCard.groupId];
+        if (group?.type === 'group' && Array.isArray(group.childIds)) {
+          nextCards = {
+            ...nextCards,
+            [group.id]: {
+              ...group,
+              childIds: group.childIds.filter((id) => id !== cardId),
+            },
+          };
+        }
       }
-    });
+
+      const remainingConnections = { ...state.connections };
+      Object.keys(remainingConnections).forEach((connectionId) => {
+        const connection = remainingConnections[connectionId];
+        if (connection.startCardId === cardId || connection.endCardId === cardId) {
+          delete remainingConnections[connectionId];
+        }
+      });
 
       return {
-        cards: remainingCards,
+        cards: nextCards,
         connections: remainingConnections,
         selectedCardIds: state.selectedCardIds.filter((id) => id !== cardId),
       };

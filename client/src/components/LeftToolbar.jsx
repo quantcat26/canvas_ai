@@ -5,21 +5,31 @@ import useCanvasStore from '../store/canvasStore.js';
 
 const LeftToolbar = () => {
   const {
+    cards,
     addCard,
+    updateCard,
     toggleConnectingMode,
     isConnectingMode,
+    selectedCardIds,
+    selectCards,
     undo,
     redo,
     canUndo,
     canRedo,
+    recordHistory,
   } = useCanvasStore(useShallow((state) => ({
+    cards: state.cards,
     addCard: state.addCard,
+    updateCard: state.updateCard,
     toggleConnectingMode: state.toggleConnectingMode,
     isConnectingMode: state.isConnectingMode,
+    selectedCardIds: state.selectedCardIds,
+    selectCards: state.selectCards,
     undo: state.undo,
     redo: state.redo,
     canUndo: state.history.length > 0,
     canRedo: state.future.length > 0,
+    recordHistory: state.recordHistory,
   })));
   const [activeTool, setActiveTool] = useState('select');
 
@@ -137,6 +147,56 @@ const LeftToolbar = () => {
       },
       size,
     });
+  };
+
+  const handleAddGroup = () => {
+    setTool('group');
+    const emptySize = { width: 260, height: 180 };
+
+    if (selectedCardIds.length === 0) {
+      addCard({
+        type: 'group',
+        position: {
+          x: window.innerWidth / 2 - emptySize.width / 2,
+          y: window.innerHeight / 2 - emptySize.height / 2,
+        },
+        size: emptySize,
+        childIds: [],
+      });
+      return;
+    }
+
+    const selectedCards = selectedCardIds.map((id) => cards[id]).filter(Boolean);
+    if (selectedCards.length === 0) return;
+
+    const padding = 20;
+    const minX = Math.min(...selectedCards.map((card) => card.position.x));
+    const minY = Math.min(...selectedCards.map((card) => card.position.y));
+    const maxX = Math.max(...selectedCards.map((card) => card.position.x + card.size.width));
+    const maxY = Math.max(...selectedCards.map((card) => card.position.y + card.size.height));
+
+    const groupPosition = { x: minX - padding, y: minY - padding };
+    const groupSize = {
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+
+    recordHistory();
+    const groupId = addCard(
+      {
+        type: 'group',
+        position: groupPosition,
+        size: groupSize,
+        childIds: selectedCardIds,
+      },
+      { skipHistory: true },
+    );
+
+    selectedCardIds.forEach((cardId) => {
+      updateCard(cardId, { groupId }, { skipHistory: true });
+    });
+
+    selectCards([groupId]);
   };
 
   const handleAddYouTubeCard = () => {
@@ -271,7 +331,7 @@ const LeftToolbar = () => {
           </svg>
         </button>
 
-        <button className="tool-button" title="Add group">
+        <button className="tool-button" title="Add group" onClick={handleAddGroup}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 11h5V5H4v6zm0 7h5v-6H4v6zm6 0h5v-6h-5v6zm6 0h5v-6h-5v6zm-6-7h5V5h-5v6zm6-6v6h5V5h-5z" fill="currentColor"/>
           </svg>
