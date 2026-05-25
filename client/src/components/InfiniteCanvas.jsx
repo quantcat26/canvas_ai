@@ -492,6 +492,7 @@ const InfiniteCanvas = () => {
     if (e.evt.button !== 0) return;
 
     e.evt.stopPropagation();
+    e.cancelBubble = true;
 
     const stage = stageRef.current;
     if (!stage) return;
