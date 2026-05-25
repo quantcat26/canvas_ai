@@ -162,6 +162,8 @@ const LeftToolbar = () => {
         },
         size: emptySize,
         childIds: [],
+        autoResize: true,
+        title: 'Group',
       });
       return;
     }
@@ -188,6 +190,8 @@ const LeftToolbar = () => {
         position: groupPosition,
         size: groupSize,
         childIds: selectedCardIds,
+        autoResize: true,
+        title: 'Group',
       },
       { skipHistory: true },
     );

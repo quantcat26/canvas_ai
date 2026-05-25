@@ -158,7 +158,10 @@ const InfiniteCanvas = () => {
     recordHistory, undo, redo,
   } = useCanvasStore();
 
-  const selectedCard = selectedCardIds.length === 1 ? cards[selectedCardIds[0]] : null;
+  const rawSelectedCard = selectedCardIds.length === 1 ? cards[selectedCardIds[0]] : null;
+  const selectedCard = rawSelectedCard && rawSelectedCard.groupId && cards[rawSelectedCard.groupId]?.collapsed
+    ? null
+    : rawSelectedCard;
   const collapsedHeight = 120;
   const cardContentPadding = 20;
   const minimapWidth = 180;
@@ -291,6 +294,9 @@ const InfiniteCanvas = () => {
         for (const cardId of selectedCardIds) {
           const card = cards[cardId];
           if (!card) continue;
+          if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) {
+            continue;
+          }
 
           const relativeX = canvasX - card.position.x;
           const relativeY = canvasY - card.position.y;
@@ -499,6 +505,22 @@ const InfiniteCanvas = () => {
     const card = cards[cardId];
     if (!card) return;
 
+    if (card.type === 'group' && card.collapsed) {
+      const canvasX = (pointerPos.x - panX) / zoom;
+      const canvasY = (pointerPos.y - panY) / zoom;
+      const relativeY = canvasY - card.position.y;
+      selectCards([cardId]);
+
+      if (relativeY > card.size.height / 2) {
+        const restored = card.expandedSize || card.size;
+        updateCard(card.id, { collapsed: false, size: restored });
+        if (card.autoResize !== false) {
+          syncGroupBounds(card.id);
+        }
+        return;
+      }
+    }
+
     dragStartTimeRef.current = Date.now();
 
     setIsDraggingCard(true);
@@ -529,6 +551,7 @@ const InfiniteCanvas = () => {
     e.evt.stopPropagation();
     const card = cards[cardId];
     if (!card) return;
+    if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) return;
 
     const stage = stageRef.current;
     if (!stage) return;
@@ -550,6 +573,15 @@ const InfiniteCanvas = () => {
       point.x <= rect.position.x + rect.size.width &&
       point.y >= rect.position.y &&
       point.y <= rect.position.y + rect.size.height
+    );
+  };
+
+  const isCardFullyInsideRect = (card, rect) => {
+    return (
+      card.position.x >= rect.position.x &&
+      card.position.y >= rect.position.y &&
+      card.position.x + card.size.width <= rect.position.x + rect.size.width &&
+      card.position.y + card.size.height <= rect.position.y + rect.size.height
     );
   };
 
@@ -1066,9 +1098,13 @@ const InfiniteCanvas = () => {
   };
 
   const syncGroupBounds = (groupId) => {
+    const { cards: currentCards, updateCard: updateGroupCard } = useCanvasStore.getState();
+    const group = currentCards[groupId];
+    if (!group || group.type !== 'group' || group.autoResize === false || group.collapsed) {
+      return;
+    }
     const bounds = getGroupBounds(groupId);
     if (!bounds) return;
-    const { updateCard: updateGroupCard } = useCanvasStore.getState();
     updateGroupCard(groupId, bounds, { skipHistory: true });
   };
 
@@ -1201,6 +1237,28 @@ const InfiniteCanvas = () => {
   const handleToggleCollapse = () => {
     if (!selectedCard) return;
 
+    if (selectedCard.type === 'group') {
+      if (!selectedCard.collapsed) {
+        updateCard(selectedCard.id, {
+          collapsed: true,
+          expandedSize: selectedCard.size,
+          size: { width: selectedCard.size.width, height: collapsedHeight },
+        });
+        return;
+      }
+
+      const restored = selectedCard.expandedSize || selectedCard.size;
+      updateCard(selectedCard.id, {
+        collapsed: false,
+        size: restored,
+      });
+
+      if (selectedCard.autoResize !== false) {
+        syncGroupBounds(selectedCard.id);
+      }
+      return;
+    }
+
     if (!selectedCard.collapsed) {
       updateCard(selectedCard.id, {
         collapsed: true,
@@ -1218,7 +1276,18 @@ const InfiniteCanvas = () => {
   };
 
   const handleResize = () => {
-    if (!selectedCard || selectedCard.type !== 'text') return;
+    if (!selectedCard) return;
+
+    if (selectedCard.type === 'group') {
+      const nextAutoResize = selectedCard.autoResize === false;
+      updateCard(selectedCard.id, { autoResize: nextAutoResize });
+      if (nextAutoResize) {
+        syncGroupBounds(selectedCard.id);
+      }
+      return;
+    }
+
+    if (selectedCard.type !== 'text') return;
     const nextHeight = estimateTextCardHeight(selectedCard.content || '', selectedCard.size.width);
 
     updateCard(selectedCard.id, {
@@ -1238,6 +1307,53 @@ const InfiniteCanvas = () => {
 
   const handleDuplicateCard = () => {
     if (!selectedCard) return;
+    if (selectedCard.type === 'group') {
+      const offset = 30;
+      const group = selectedCard;
+      const { id: _id, childIds: _childIds, ...groupRest } = group;
+      const originalChildIds = Array.isArray(group.childIds) ? group.childIds : [];
+
+      recordHistory();
+
+      const newGroupId = addCard(
+        {
+          ...groupRest,
+          position: {
+            x: group.position.x + offset,
+            y: group.position.y + offset,
+          },
+          childIds: [],
+        },
+        { skipHistory: true },
+      );
+
+      const newChildIds = [];
+      originalChildIds.forEach((childId) => {
+        const child = cards[childId];
+        if (!child) return;
+        const { id: _childId, ...childRest } = child;
+        const newChildId = addCard(
+          {
+            ...childRest,
+            position: {
+              x: child.position.x + offset,
+              y: child.position.y + offset,
+            },
+            groupId: newGroupId,
+          },
+          { skipHistory: true },
+        );
+        newChildIds.push(newChildId);
+      });
+
+      updateCard(newGroupId, { childIds: newChildIds }, { skipHistory: true });
+      if (group.autoResize !== false && !group.collapsed) {
+        syncGroupBounds(newGroupId);
+      }
+      selectCards([newGroupId]);
+      return;
+    }
+
     const { id, expandedSize, collapsed, ...rest } = selectedCard;
     addCard({
       ...rest,
@@ -1246,6 +1362,14 @@ const InfiniteCanvas = () => {
         y: selectedCard.position.y + 30,
       },
     });
+  };
+
+  const handleRenameGroup = () => {
+    if (!selectedCard || selectedCard.type !== 'group') return;
+    const nextName = window.prompt('Enter group name', selectedCard.title || 'Group');
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    updateCard(selectedCard.id, { title: trimmed || 'Group' });
   };
 
   const handleUngroupCard = () => {
@@ -1266,6 +1390,16 @@ const InfiniteCanvas = () => {
 
   const handleDeleteCard = () => {
     if (!selectedCard) return;
+    if (selectedCard.type === 'group') {
+      const childIds = Array.isArray(selectedCard.childIds) ? selectedCard.childIds : [];
+      recordHistory();
+      childIds.forEach((childId) => {
+        removeCard(childId, { skipHistory: true });
+      });
+      removeCard(selectedCard.id, { skipHistory: true });
+      clearSelection();
+      return;
+    }
     removeCard(selectedCard.id);
     clearSelection();
   };
@@ -1374,6 +1508,12 @@ const InfiniteCanvas = () => {
 
           {orderedCards.map((card) => {
             const isGroup = card.type === 'group';
+            const parentGroup = !isGroup && card.groupId ? cards[card.groupId] : null;
+            const isInCollapsedGroup = parentGroup?.type === 'group' && parentGroup.collapsed;
+            const isVisibleInCollapsedGroup = !isInCollapsedGroup || isCardFullyInsideRect(card, parentGroup);
+            if (isInCollapsedGroup && !isVisibleInCollapsedGroup) {
+              return null;
+            }
             const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
             const isCardSelected = selectedCardIds.includes(card.id);
             return (
@@ -1389,6 +1529,7 @@ const InfiniteCanvas = () => {
               onDblClick={(e) => handleCardDoubleClick(card.id, e)}
               onTap={() => selectCards([card.id])}
               rotation={card.angle || 0}
+              listening={!isInCollapsedGroup}
             >
               <Rect
                 width={card.size.width}
@@ -1411,7 +1552,7 @@ const InfiniteCanvas = () => {
                   y={10}
                   width={card.size.width - 24}
                   height={20}
-                  text="Group"
+                  text={card.title || 'Group'}
                   fontSize={13}
                   fill={isGroupHighlighted ? '#14532d' : '#64748b'}
                   listening={false}
@@ -1549,7 +1690,9 @@ const InfiniteCanvas = () => {
             {selectedCard.collapsed ? 'Expand' : 'Collapse'}
           </button>
           <button className={styles.cardOptionButton} onClick={handleResize}>
-            Resize
+            {selectedCard.type === 'group'
+              ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
+              : 'Resize'}
           </button>
           {selectedCard.type !== 'group' && (
             <button className={styles.cardOptionButton} onClick={handleCopyCard}>
@@ -1559,6 +1702,11 @@ const InfiniteCanvas = () => {
           <button className={styles.cardOptionButton} onClick={handleDuplicateCard}>
             Duplicate
           </button>
+          {selectedCard.type === 'group' && (
+            <button className={styles.cardOptionButton} onClick={handleRenameGroup}>
+              Rename
+            </button>
+          )}
           {selectedCard.groupId && (
             <button className={styles.cardOptionButton} onClick={handleUngroupCard}>
               Ungroup
