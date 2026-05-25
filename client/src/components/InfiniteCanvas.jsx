@@ -14,6 +14,7 @@ const AUTO_RESIZE_MIN_HEIGHT = 160;
 const AUTO_RESIZE_MAX_HEIGHT = 620;
 const GROUP_PADDING = 20;
 const COLLAPSED_CHILD_PREVIEW_RATIO = 0.3;
+const COLLAPSED_GROUP_DRAG_RATIO = 0.7;
 
 const textMeasureContext = typeof document !== 'undefined'
   ? document.createElement('canvas').getContext('2d')
@@ -512,7 +513,7 @@ const InfiniteCanvas = () => {
       const relativeY = canvasY - card.position.y;
       selectCards([cardId]);
 
-      if (relativeY > card.size.height / 2) {
+      if (relativeY > card.size.height * COLLAPSED_GROUP_DRAG_RATIO) {
         const restored = card.expandedSize || card.size;
         updateCard(card.id, { collapsed: false, size: restored });
         if (card.autoResize !== false) {
