@@ -13,6 +13,7 @@ const CARD_CONTENT_PADDING = 20;
 const AUTO_RESIZE_MIN_HEIGHT = 160;
 const AUTO_RESIZE_MAX_HEIGHT = 620;
 const GROUP_PADDING = 20;
+const COLLAPSED_CHILD_PREVIEW_RATIO = 0.3;
 
 const textMeasureContext = typeof document !== 'undefined'
   ? document.createElement('canvas').getContext('2d')
@@ -576,13 +577,37 @@ const InfiniteCanvas = () => {
     );
   };
 
-  const isCardFullyInsideRect = (card, rect) => {
-    return (
-      card.position.x >= rect.position.x &&
-      card.position.y >= rect.position.y &&
-      card.position.x + card.size.width <= rect.position.x + rect.size.width &&
-      card.position.y + card.size.height <= rect.position.y + rect.size.height
-    );
+  const getRectIntersection = (rectA, rectB) => {
+    const left = Math.max(rectA.position.x, rectB.position.x);
+    const top = Math.max(rectA.position.y, rectB.position.y);
+    const right = Math.min(rectA.position.x + rectA.size.width, rectB.position.x + rectB.size.width);
+    const bottom = Math.min(rectA.position.y + rectA.size.height, rectB.position.y + rectB.size.height);
+
+    if (right <= left || bottom <= top) {
+      return null;
+    }
+
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    };
+  };
+
+  const getCollapsedChildClip = (card, group) => {
+    if (!group) return null;
+    const groupRect = {
+      position: { x: group.position.x, y: group.position.y },
+      size: { width: group.size.width, height: group.size.height },
+    };
+    const previewHeight = card.size.height * COLLAPSED_CHILD_PREVIEW_RATIO;
+    const childPreviewRect = {
+      position: { x: card.position.x, y: card.position.y },
+      size: { width: card.size.width, height: previewHeight },
+    };
+
+    return getRectIntersection(groupRect, childPreviewRect);
   };
 
   const resolveContainingGroupId = (point) => {
@@ -1510,8 +1535,10 @@ const InfiniteCanvas = () => {
             const isGroup = card.type === 'group';
             const parentGroup = !isGroup && card.groupId ? cards[card.groupId] : null;
             const isInCollapsedGroup = parentGroup?.type === 'group' && parentGroup.collapsed;
-            const isVisibleInCollapsedGroup = !isInCollapsedGroup || isCardFullyInsideRect(card, parentGroup);
-            if (isInCollapsedGroup && !isVisibleInCollapsedGroup) {
+            const collapsedClip = isInCollapsedGroup
+              ? getCollapsedChildClip(card, parentGroup)
+              : null;
+            if (isInCollapsedGroup && !collapsedClip) {
               return null;
             }
             const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
@@ -1530,6 +1557,10 @@ const InfiniteCanvas = () => {
               onTap={() => selectCards([card.id])}
               rotation={card.angle || 0}
               listening={!isInCollapsedGroup}
+              clipX={collapsedClip ? collapsedClip.x - card.position.x : undefined}
+              clipY={collapsedClip ? collapsedClip.y - card.position.y : undefined}
+              clipWidth={collapsedClip ? collapsedClip.width : undefined}
+              clipHeight={collapsedClip ? collapsedClip.height : undefined}
             >
               <Rect
                 width={card.size.width}
