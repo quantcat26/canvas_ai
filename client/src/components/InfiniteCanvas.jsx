@@ -123,6 +123,7 @@ const InfiniteCanvas = () => {
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [isHoveringConnection, setIsHoveringConnection] = useState(false);
   const [connectionStartCardId, setConnectionStartCardId] = useState(null);
+  const [connectionStartAnchor, setConnectionStartAnchor] = useState(null);
   const [tempConnectionPoints, setTempConnectionPoints] = useState(null);
   const [isDraggingCard, setIsDraggingCard] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -193,8 +194,12 @@ const InfiniteCanvas = () => {
       setCursorCanvasPosition({ x: canvasX, y: canvasY });
 
       if (isConnectingMode && connectionStartCardId && tempConnectionPoints) {
+        const startCard = cards[connectionStartCardId];
+        const startPoint = connectionStartAnchor && startCard
+          ? getPointFromAnchor(startCard, connectionStartAnchor)
+          : tempConnectionPoints.start;
         setTempConnectionPoints({
-          ...tempConnectionPoints,
+          start: startPoint,
           end: { x: canvasX, y: canvasY },
         });
       }
@@ -397,7 +402,12 @@ const InfiniteCanvas = () => {
         const endCard = cards[connection.endCardId];
 
         if (startCard && endCard) {
-          const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
+          const { startPoint, endPoint } = calculateConnectionPoints(
+            startCard,
+            endCard,
+            connection.startAnchor,
+            connection.endAnchor,
+          );
           updateConnection(
             connection.id,
             {
@@ -554,20 +564,26 @@ const InfiniteCanvas = () => {
     if (!card) return;
 
     if (isConnectingMode) {
+      const pointerPos = stage?.getPointerPosition();
+      const canvasPointer = pointerPos
+        ? { x: (pointerPos.x - panX) / zoom, y: (pointerPos.y - panY) / zoom }
+        : null;
+
       if (!connectionStartCardId) {
+        const targetPoint = canvasPointer || getCardCenter(card);
+        const startEdgePoint = getEdgeIntersection(card, targetPoint);
+        const startAnchor = getAnchorFromPoint(card, startEdgePoint);
+        const startPoint = getPointFromAnchor(card, startAnchor);
+
         setConnectionStartCardId(cardId);
+        setConnectionStartAnchor(startAnchor);
         setTempConnectionPoints({
-          start: {
-            x: card.position.x + card.size.width / 2,
-            y: card.position.y + card.size.height / 2,
-          },
-          end: {
-            x: card.position.x + card.size.width / 2,
-            y: card.position.y + card.size.height / 2,
-          },
+          start: startPoint,
+          end: startPoint,
         });
       } else if (cardId === connectionStartCardId) {
         setConnectionStartCardId(null);
+        setConnectionStartAnchor(null);
         setTempConnectionPoints(null);
       } else if (cardId !== connectionStartCardId) {
         const startCard = cards[connectionStartCardId];
@@ -575,17 +591,31 @@ const InfiniteCanvas = () => {
         const { addConnection } = useCanvasStore.getState();
 
         if (startCard && endCard) {
-          const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
+          const targetPoint = canvasPointer || getCardCenter(endCard);
+          const endEdgePoint = getEdgeIntersection(endCard, targetPoint);
+          const endAnchor = getAnchorFromPoint(endCard, endEdgePoint);
+          const startAnchor = connectionStartAnchor
+            || getAnchorFromPoint(startCard, getEdgeIntersection(startCard, getCardCenter(endCard)));
+
+          const { startPoint, endPoint } = calculateConnectionPoints(
+            startCard,
+            endCard,
+            startAnchor,
+            endAnchor,
+          );
 
           addConnection({
             startCardId: connectionStartCardId,
             endCardId: cardId,
             startPoint,
             endPoint,
+            startAnchor,
+            endAnchor,
           });
         }
 
         setConnectionStartCardId(null);
+        setConnectionStartAnchor(null);
         setTempConnectionPoints(null);
       }
       return;
@@ -828,45 +858,88 @@ const InfiniteCanvas = () => {
     return null;
   };
 
-  const calculateConnectionPoints = (startCard, endCard) => {
-    const startCenter = {
-      x: startCard.position.x + startCard.size.width / 2,
-      y: startCard.position.y + startCard.size.height / 2,
-    };
-    const endCenter = {
-      x: endCard.position.x + endCard.size.width / 2,
-      y: endCard.position.y + endCard.size.height / 2,
-    };
+  const getCardCenter = (card) => ({
+    x: card.position.x + card.size.width / 2,
+    y: card.position.y + card.size.height / 2,
+  });
 
-    const startEdges = [
-      { x: startCard.position.x + startCard.size.width, y: startCenter.y },
-      { x: startCenter.x, y: startCard.position.y },
-      { x: startCard.position.x, y: startCenter.y },
-      { x: startCenter.x, y: startCard.position.y + startCard.size.height },
-    ];
-    const endEdges = [
-      { x: endCard.position.x + endCard.size.width, y: endCenter.y },
-      { x: endCenter.x, y: endCard.position.y },
-      { x: endCard.position.x, y: endCenter.y },
-      { x: endCenter.x, y: endCard.position.y + endCard.size.height },
-    ];
+  const getEdgeIntersection = (card, targetPoint) => {
+    const center = getCardCenter(card);
+    const dx = targetPoint.x - center.x;
+    const dy = targetPoint.y - center.y;
 
-    let minDistance = Infinity;
-    let bestStartPoint = startCenter;
-    let bestEndPoint = endCenter;
-
-    for (const startEdge of startEdges) {
-      for (const endEdge of endEdges) {
-        const distance = calculateDistance(startEdge, endEdge);
-        if (distance < minDistance) {
-          minDistance = distance;
-          bestStartPoint = startEdge;
-          bestEndPoint = endEdge;
-        }
-      }
+    if (dx === 0 && dy === 0) {
+      return center;
     }
 
-    return { startPoint: bestStartPoint, endPoint: bestEndPoint };
+    const halfWidth = card.size.width / 2;
+    const halfHeight = card.size.height / 2;
+    const scaleX = Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Infinity;
+    const scaleY = Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Infinity;
+    const scale = Math.min(scaleX, scaleY);
+
+    return {
+      x: center.x + dx * scale,
+      y: center.y + dy * scale,
+    };
+  };
+
+  const getAnchorFromPoint = (card, point) => {
+    const left = card.position.x;
+    const right = card.position.x + card.size.width;
+    const top = card.position.y;
+    const bottom = card.position.y + card.size.height;
+
+    const distances = [
+      { edge: 'left', value: Math.abs(point.x - left) },
+      { edge: 'right', value: Math.abs(point.x - right) },
+      { edge: 'top', value: Math.abs(point.y - top) },
+      { edge: 'bottom', value: Math.abs(point.y - bottom) },
+    ];
+
+    distances.sort((a, b) => a.value - b.value);
+    const edge = distances[0].edge;
+
+    if (edge === 'left' || edge === 'right') {
+      const ratio = (point.y - top) / card.size.height;
+      return { edge, ratio: Math.min(1, Math.max(0, ratio)) };
+    }
+
+    const ratio = (point.x - left) / card.size.width;
+    return { edge, ratio: Math.min(1, Math.max(0, ratio)) };
+  };
+
+  const getPointFromAnchor = (card, anchor) => {
+    const left = card.position.x;
+    const right = card.position.x + card.size.width;
+    const top = card.position.y;
+    const bottom = card.position.y + card.size.height;
+
+    switch (anchor.edge) {
+      case 'left':
+        return { x: left, y: top + anchor.ratio * card.size.height };
+      case 'right':
+        return { x: right, y: top + anchor.ratio * card.size.height };
+      case 'top':
+        return { x: left + anchor.ratio * card.size.width, y: top };
+      case 'bottom':
+      default:
+        return { x: left + anchor.ratio * card.size.width, y: bottom };
+    }
+  };
+
+  const calculateConnectionPoints = (startCard, endCard, startAnchor, endAnchor) => {
+    const startTarget = endAnchor ? getPointFromAnchor(endCard, endAnchor) : getCardCenter(endCard);
+    const endTarget = startAnchor ? getPointFromAnchor(startCard, startAnchor) : getCardCenter(startCard);
+
+    const startPoint = startAnchor
+      ? getPointFromAnchor(startCard, startAnchor)
+      : getEdgeIntersection(startCard, startTarget);
+    const endPoint = endAnchor
+      ? getPointFromAnchor(endCard, endAnchor)
+      : getEdgeIntersection(endCard, endTarget);
+
+    return { startPoint, endPoint };
   };
 
   const getGroupBounds = (groupId) => {
