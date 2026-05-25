@@ -723,7 +723,20 @@ const InfiniteCanvas = () => {
     return parts.length > 1 ? `${parts[1].toUpperCase()} file` : 'File';
   };
 
-  const renderFilePreview = (card) => {
+  const renderCardPreview = (card) => {
+    if (card.type === 'link') {
+      return (
+        <iframe
+          className={styles.previewFrame}
+          src={card.url}
+          title={card.url || 'Link preview'}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+        />
+      );
+    }
+
     if (card.previewType === 'pdf') {
       return (
         <iframe
@@ -984,9 +997,10 @@ const InfiniteCanvas = () => {
   };
 
   const previewCards = useMemo(() => {
-    return Object.values(cards).filter(
-      (card) => card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType),
-    );
+    return Object.values(cards).filter((card) => {
+      if (card.type === 'link') return true;
+      return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
+    });
   }, [cards]);
 
   const getPreviewStyle = (card) => ({
@@ -1154,6 +1168,31 @@ const InfiniteCanvas = () => {
                     listening={false}
                   />
                 </Group>
+              ) : card.type === 'link' ? (
+                <Group>
+                  <Text
+                    x={0}
+                    y={18}
+                    width={card.size.width}
+                    height={30}
+                    text="🌐"
+                    fontSize={22}
+                    fill="#1f2a37"
+                    align="center"
+                    listening={false}
+                  />
+                  <Text
+                    x={16}
+                    y={50}
+                    width={card.size.width - 32}
+                    height={card.size.height - 60}
+                    text={card.url || 'Link preview'}
+                    fontSize={13}
+                    fill="#475569"
+                    align="center"
+                    listening={false}
+                  />
+                </Group>
               ) : null}
             </Group>
           ))}
@@ -1166,7 +1205,7 @@ const InfiniteCanvas = () => {
           className={styles.cardPreviewOverlay}
           style={getPreviewStyle(card)}
         >
-          {renderFilePreview(card)}
+          {renderCardPreview(card)}
         </div>
       ))}
 
