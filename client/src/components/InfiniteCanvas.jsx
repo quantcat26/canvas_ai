@@ -638,7 +638,10 @@ const InfiniteCanvas = () => {
     }
 
     if (card.type === 'text') {
-      selectCards([cardId]);
+      const isShiftPressed = 'shiftKey' in e.evt && Boolean(e.evt.shiftKey);
+      if (!isShiftPressed) {
+        selectCards([cardId]);
+      }
     }
   };
 
