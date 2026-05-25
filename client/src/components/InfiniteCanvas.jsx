@@ -1248,6 +1248,22 @@ const InfiniteCanvas = () => {
     });
   };
 
+  const handleUngroupCard = () => {
+    if (!selectedCard || !selectedCard.groupId) return;
+    const group = cards[selectedCard.groupId];
+    recordHistory();
+
+    updateCard(selectedCard.id, { groupId: null }, { skipHistory: true });
+
+    if (group?.type === 'group' && Array.isArray(group.childIds)) {
+      const nextChildIds = group.childIds.filter((id) => id !== selectedCard.id);
+      updateCard(group.id, { childIds: nextChildIds }, { skipHistory: true });
+      if (nextChildIds.length > 0) {
+        syncGroupBounds(group.id);
+      }
+    }
+  };
+
   const handleDeleteCard = () => {
     if (!selectedCard) return;
     removeCard(selectedCard.id);
@@ -1535,12 +1551,19 @@ const InfiniteCanvas = () => {
           <button className={styles.cardOptionButton} onClick={handleResize}>
             Resize
           </button>
-          <button className={styles.cardOptionButton} onClick={handleCopyCard}>
-            Copy
-          </button>
+          {selectedCard.type !== 'group' && (
+            <button className={styles.cardOptionButton} onClick={handleCopyCard}>
+              Copy
+            </button>
+          )}
           <button className={styles.cardOptionButton} onClick={handleDuplicateCard}>
             Duplicate
           </button>
+          {selectedCard.groupId && (
+            <button className={styles.cardOptionButton} onClick={handleUngroupCard}>
+              Ungroup
+            </button>
+          )}
           <button className={`${styles.cardOptionButton} ${styles.dangerButton}`} onClick={handleDeleteCard}>
             Delete
           </button>
