@@ -63,6 +63,14 @@ const LeftToolbar = () => {
     return trimmed;
   };
 
+  const extractYouTubeId = (value) => {
+    const trimmed = value.trim();
+    const match = trimmed.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/i);
+    if (match) return match[1];
+    if (/^[A-Za-z0-9_-]{6,}$/.test(trimmed)) return trimmed;
+    return null;
+  };
+
   const handleAddTextCard = () => {
     setTool('card');
     const defaultMarkdownContent = `# Title
@@ -123,6 +131,30 @@ const LeftToolbar = () => {
     addCard({
       type: 'link',
       url,
+      position: {
+        x: window.innerWidth / 2 - size.width / 2,
+        y: window.innerHeight / 2 - size.height / 2,
+      },
+      size,
+    });
+  };
+
+  const handleAddYouTubeCard = () => {
+    setTool('youtube');
+    const value = window.prompt('Enter a YouTube URL or video ID');
+    if (!value) return;
+
+    const videoId = extractYouTubeId(value);
+    if (!videoId) {
+      window.alert('Invalid YouTube URL or video ID.');
+      return;
+    }
+
+    const size = { width: 360, height: 220 };
+
+    addCard({
+      type: 'youtube',
+      videoId,
       position: {
         x: window.innerWidth / 2 - size.width / 2,
         y: window.innerHeight / 2 - size.height / 2,
@@ -233,7 +265,7 @@ const LeftToolbar = () => {
           </svg>
         </button>
 
-        <button className="tool-button" title="Add YouTube video">
+        <button className="tool-button" title="Add YouTube video" onClick={handleAddYouTubeCard}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M10 16.5l6-4.5-6-4.5v9zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="currentColor"/>
           </svg>

@@ -737,6 +737,22 @@ const InfiniteCanvas = () => {
       );
     }
 
+    if (card.type === 'youtube') {
+      const embedUrl = card.videoId
+        ? `https://www.youtube.com/embed/${card.videoId}?rel=0`
+        : '';
+      return (
+        <iframe
+          className={styles.previewFrame}
+          src={embedUrl}
+          title="YouTube preview"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      );
+    }
+
     if (card.previewType === 'pdf') {
       return (
         <iframe
@@ -999,6 +1015,7 @@ const InfiniteCanvas = () => {
   const previewCards = useMemo(() => {
     return Object.values(cards).filter((card) => {
       if (card.type === 'link') return true;
+      if (card.type === 'youtube') return true;
       return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
     });
   }, [cards]);
@@ -1187,6 +1204,31 @@ const InfiniteCanvas = () => {
                     width={card.size.width - 32}
                     height={card.size.height - 60}
                     text={card.url || 'Link preview'}
+                    fontSize={13}
+                    fill="#475569"
+                    align="center"
+                    listening={false}
+                  />
+                </Group>
+              ) : card.type === 'youtube' ? (
+                <Group>
+                  <Text
+                    x={0}
+                    y={18}
+                    width={card.size.width}
+                    height={30}
+                    text="▶️"
+                    fontSize={22}
+                    fill="#1f2a37"
+                    align="center"
+                    listening={false}
+                  />
+                  <Text
+                    x={16}
+                    y={50}
+                    width={card.size.width - 32}
+                    height={card.size.height - 60}
+                    text={card.videoId ? `YouTube: ${card.videoId}` : 'YouTube preview'}
                     fontSize={13}
                     fill="#475569"
                     align="center"
