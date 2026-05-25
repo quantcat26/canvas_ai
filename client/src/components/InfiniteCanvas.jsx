@@ -577,6 +577,15 @@ const InfiniteCanvas = () => {
     );
   };
 
+  const isCardFullyInsideRect = (card, rect) => {
+    return (
+      card.position.x >= rect.position.x &&
+      card.position.y >= rect.position.y &&
+      card.position.x + card.size.width <= rect.position.x + rect.size.width &&
+      card.position.y + card.size.height <= rect.position.y + rect.size.height
+    );
+  };
+
   const getRectIntersection = (rectA, rectB) => {
     const left = Math.max(rectA.position.x, rectB.position.x);
     const top = Math.max(rectA.position.y, rectB.position.y);
@@ -601,13 +610,16 @@ const InfiniteCanvas = () => {
       position: { x: group.position.x, y: group.position.y },
       size: { width: group.size.width, height: group.size.height },
     };
+    if (isCardFullyInsideRect(card, groupRect)) {
+      return { clip: null, fullyVisible: true };
+    }
     const previewHeight = card.size.height * COLLAPSED_CHILD_PREVIEW_RATIO;
     const childPreviewRect = {
       position: { x: card.position.x, y: card.position.y },
       size: { width: card.size.width, height: previewHeight },
     };
 
-    return getRectIntersection(groupRect, childPreviewRect);
+    return { clip: getRectIntersection(groupRect, childPreviewRect), fullyVisible: false };
   };
 
   const resolveContainingGroupId = (point) => {
@@ -1535,10 +1547,11 @@ const InfiniteCanvas = () => {
             const isGroup = card.type === 'group';
             const parentGroup = !isGroup && card.groupId ? cards[card.groupId] : null;
             const isInCollapsedGroup = parentGroup?.type === 'group' && parentGroup.collapsed;
-            const collapsedClip = isInCollapsedGroup
+            const collapsedInfo = isInCollapsedGroup
               ? getCollapsedChildClip(card, parentGroup)
               : null;
-            if (isInCollapsedGroup && !collapsedClip) {
+            const collapsedClip = collapsedInfo?.clip ?? null;
+            if (isInCollapsedGroup && !collapsedInfo?.fullyVisible && !collapsedClip) {
               return null;
             }
             const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
