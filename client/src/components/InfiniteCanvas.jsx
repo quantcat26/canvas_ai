@@ -150,6 +150,7 @@ const InfiniteCanvas = () => {
   const [hoveredGroupId, setHoveredGroupId] = useState(null);
   const dragHistoryRecordedRef = useRef(false);
   const resizeHistoryRecordedRef = useRef(false);
+  const previewDragStateRef = useRef(null);
 
   const {
     zoom, panX, panY,
@@ -965,14 +966,24 @@ const InfiniteCanvas = () => {
   const renderCardPreview = (card) => {
     if (card.type === 'link') {
       return (
-        <iframe
-          className={styles.previewFrame}
-          src={card.url}
-          title={card.url || 'Link preview'}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={card.url}
+              title={getPreviewTitle(card)}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            />
+          </div>
+        </div>
       );
     }
 
@@ -981,14 +992,24 @@ const InfiniteCanvas = () => {
         ? `https://www.youtube.com/embed/${card.videoId}?rel=0`
         : '';
       return (
-        <iframe
-          className={styles.previewFrame}
-          src={embedUrl}
-          title="YouTube preview"
-          loading="lazy"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={embedUrl}
+              title={getPreviewTitle(card)}
+              loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
       );
     }
 
@@ -1004,15 +1025,23 @@ const InfiniteCanvas = () => {
 
     if (card.previewType === 'video') {
       return (
-        <video
-          className={styles.previewFrame}
-          src={card.content}
-          muted
-          loop
-          playsInline
-          autoPlay
-          preload="metadata"
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <video
+              className={styles.previewFrame}
+              src={card.content}
+              playsInline
+              controls
+              preload="metadata"
+            />
+          </div>
+        </div>
       );
     }
 
@@ -1451,6 +1480,32 @@ const InfiniteCanvas = () => {
     });
   }, [cards]);
 
+  const isInteractivePreview = (card) => (
+    card.type === 'link' || card.type === 'youtube' || card.previewType === 'video'
+  );
+
+  const getPreviewTitle = (card) => {
+    if (card.type === 'link') {
+      if (!card.url) return 'Link preview';
+
+      try {
+        return new URL(card.url).hostname || card.url;
+      } catch {
+        return card.url;
+      }
+    }
+
+    if (card.type === 'youtube') {
+      return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+    }
+
+    if (card.previewType === 'video') {
+      return card.fileName || 'Video preview';
+    }
+
+    return 'Preview';
+  };
+
   const orderedCards = useMemo(() => {
     const list = Object.values(cards);
     return list.sort((a, b) => {
@@ -1460,12 +1515,70 @@ const InfiniteCanvas = () => {
     });
   }, [cards]);
 
-  const getPreviewStyle = (card) => ({
-    left: `${card.position.x * zoom + panX}px`,
-    top: `${card.position.y * zoom + panY}px`,
-    width: `${card.size.width * zoom}px`,
-    height: `${card.size.height * zoom}px`,
-  });
+  const getPreviewStyle = (card) => {
+    const inset = isInteractivePreview(card)
+      ? Math.min(12, Math.max(6, 8 * zoom))
+      : 0;
+    const width = Math.max(0, card.size.width * zoom - inset * 2);
+    const height = Math.max(0, card.size.height * zoom - inset * 2);
+
+    return {
+      left: `${card.position.x * zoom + panX + inset}px`,
+      top: `${card.position.y * zoom + panY + inset}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+    };
+  };
+
+  const handlePreviewDragStart = (cardId, e) => {
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const card = cards[cardId];
+    if (!card) return;
+
+    previewDragStateRef.current = {
+      cardId,
+      startX: e.clientX,
+      startY: e.clientY,
+      cardX: card.position.x,
+      cardY: card.position.y,
+      moved: false,
+    };
+
+    selectCards([cardId]);
+
+    const handleMouseMove = (moveEvent) => {
+      const dragState = previewDragStateRef.current;
+      if (!dragState || dragState.cardId !== cardId) return;
+
+      const deltaX = (moveEvent.clientX - dragState.startX) / zoom;
+      const deltaY = (moveEvent.clientY - dragState.startY) / zoom;
+      const distance = Math.sqrt((moveEvent.clientX - dragState.startX) ** 2 + (moveEvent.clientY - dragState.startY) ** 2);
+
+      if (distance < 3) {
+        return;
+      }
+
+      if (!dragState.moved) {
+        recordHistory();
+        dragState.moved = true;
+      }
+
+      updateCardPosition(cardId, dragState.cardX + deltaX, dragState.cardY + deltaY);
+    };
+
+    const handleMouseUp = () => {
+      previewDragStateRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   return (
     <div className={styles.canvasContainer} style={{ cursor: cursorStyle }}>
@@ -1718,7 +1831,10 @@ const InfiniteCanvas = () => {
         <div
           key={`preview-${card.id}`}
           className={styles.cardPreviewOverlay}
-          style={getPreviewStyle(card)}
+          style={{
+            ...getPreviewStyle(card),
+            pointerEvents: isInteractivePreview(card) ? 'auto' : 'none',
+          }}
         >
           {renderCardPreview(card)}
         </div>
