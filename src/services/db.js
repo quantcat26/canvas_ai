@@ -91,6 +91,10 @@ const ensureSchema = (db) => {
       expanded_height REAL,
       file_type TEXT,
       angle REAL,
+      group_id TEXT,
+      group_title TEXT,
+      group_child_ids TEXT,
+      group_auto_resize INTEGER,
       FOREIGN KEY(canvas_id) REFERENCES canvas(id) ON DELETE CASCADE
     );
 
@@ -118,8 +122,22 @@ const initDb = async () => {
   dbInstance.pragma('journal_mode = WAL');
   dbInstance.pragma('foreign_keys = ON');
   ensureSchema(dbInstance);
+  ensureCardColumns(dbInstance);
   return dbInstance;
 };
+
+function ensureCardColumns(db) {
+  const columns = db.prepare('PRAGMA table_info(card)').all().map((row) => row.name);
+  const addColumn = (name, definition) => {
+    if (columns.includes(name)) return;
+    db.exec(`ALTER TABLE card ADD COLUMN ${definition}`);
+  };
+
+  addColumn('group_id', 'group_id TEXT');
+  addColumn('group_title', 'group_title TEXT');
+  addColumn('group_child_ids', 'group_child_ids TEXT');
+  addColumn('group_auto_resize', 'group_auto_resize INTEGER');
+}
 
 const getTableColumns = (db, tableName) => {
   const rows = db.prepare(`PRAGMA table_info(${tableName})`).all();
@@ -132,12 +150,14 @@ const insertCards = (db, canvasId, cards) => {
       id, canvas_id, type, content,
       position_x, position_y, width, height,
       collapsed, expanded_width, expanded_height,
-      file_type, angle
+      file_type, angle,
+      group_id, group_title, group_child_ids, group_auto_resize
     ) VALUES (
       @id, @canvasId, @type, @content,
       @positionX, @positionY, @width, @height,
       @collapsed, @expandedWidth, @expandedHeight,
-      @fileType, @angle
+      @fileType, @angle,
+      @groupId, @groupTitle, @groupChildIds, @groupAutoResize
     )
   `);
 
@@ -147,6 +167,8 @@ const insertCards = (db, canvasId, cards) => {
     const position = isRecord(card.position) ? card.position : {};
     const size = isRecord(card.size) ? card.size : {};
     const expandedSize = isRecord(card.expandedSize) ? card.expandedSize : null;
+    const groupChildIds = Array.isArray(card.childIds) ? JSON.stringify(card.childIds) : null;
+    const groupAutoResize = typeof card.autoResize === 'boolean' ? (card.autoResize ? 1 : 0) : null;
 
     insertCard.run({
       id,
@@ -162,6 +184,10 @@ const insertCards = (db, canvasId, cards) => {
       expandedHeight: expandedSize ? normalizeNumber(expandedSize.height, null) : null,
       fileType: typeof card.fileType === 'string' ? card.fileType : null,
       angle: normalizeNumber(card.angle, null),
+      groupId: typeof card.groupId === 'string' ? card.groupId : null,
+      groupTitle: typeof card.title === 'string' ? card.title : null,
+      groupChildIds,
+      groupAutoResize,
     });
   });
 };

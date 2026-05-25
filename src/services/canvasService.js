@@ -26,18 +26,29 @@ const normalizeState = (state) => {
   };
 };
 
+const safeParseJson = (value) => {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
 const insertCards = (db, canvasId, cards) => {
   const insertCard = db.prepare(`
     INSERT INTO card (
       id, canvas_id, type, content,
       position_x, position_y, width, height,
       collapsed, expanded_width, expanded_height,
-      file_type, angle
+      file_type, angle,
+      group_id, group_title, group_child_ids, group_auto_resize
     ) VALUES (
       @id, @canvasId, @type, @content,
       @positionX, @positionY, @width, @height,
       @collapsed, @expandedWidth, @expandedHeight,
-      @fileType, @angle
+      @fileType, @angle,
+      @groupId, @groupTitle, @groupChildIds, @groupAutoResize
     )
   `);
 
@@ -47,6 +58,8 @@ const insertCards = (db, canvasId, cards) => {
     const position = isRecord(card.position) ? card.position : {};
     const size = isRecord(card.size) ? card.size : {};
     const expandedSize = isRecord(card.expandedSize) ? card.expandedSize : null;
+    const groupChildIds = Array.isArray(card.childIds) ? JSON.stringify(card.childIds) : null;
+    const groupAutoResize = typeof card.autoResize === 'boolean' ? (card.autoResize ? 1 : 0) : null;
 
     insertCard.run({
       id,
@@ -62,6 +75,10 @@ const insertCards = (db, canvasId, cards) => {
       expandedHeight: expandedSize ? normalizeNumber(expandedSize.height, null) : null,
       fileType: typeof card.fileType === 'string' ? card.fileType : null,
       angle: normalizeNumber(card.angle, null),
+      groupId: typeof card.groupId === 'string' ? card.groupId : null,
+      groupTitle: typeof card.title === 'string' ? card.title : null,
+      groupChildIds,
+      groupAutoResize,
     });
   });
 };
@@ -136,7 +153,8 @@ class CanvasService {
         id, type, content,
         position_x, position_y, width, height,
         collapsed, expanded_width, expanded_height,
-        file_type, angle
+        file_type, angle,
+        group_id, group_title, group_child_ids, group_auto_resize
       FROM card
       WHERE canvas_id = ?
     `).all(canvasId);
@@ -151,6 +169,15 @@ class CanvasService {
 
     const cards = {};
     cardRows.forEach((card) => {
+      const childIds = safeParseJson(card.group_child_ids);
+      const normalizedChildIds = Array.isArray(childIds) ? childIds : undefined;
+      const groupId = typeof card.group_id === 'string' && card.group_id.trim().length > 0
+        ? card.group_id
+        : undefined;
+      const autoResize = card.group_auto_resize === null || card.group_auto_resize === undefined
+        ? undefined
+        : Boolean(card.group_auto_resize);
+
       cards[card.id] = {
         id: card.id,
         type: card.type,
@@ -163,6 +190,12 @@ class CanvasService {
           : undefined,
         fileType: card.file_type || undefined,
         angle: card.angle ?? undefined,
+        groupId,
+        title: typeof card.group_title === 'string' && card.group_title.length > 0
+          ? card.group_title
+          : undefined,
+        childIds: normalizedChildIds,
+        autoResize,
       };
     });
 
