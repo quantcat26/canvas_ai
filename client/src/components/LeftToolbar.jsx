@@ -5,21 +5,31 @@ import useCanvasStore from '../store/canvasStore.js';
 
 const LeftToolbar = () => {
   const {
+    cards,
     addCard,
+    updateCard,
     toggleConnectingMode,
     isConnectingMode,
+    selectedCardIds,
+    selectCards,
     undo,
     redo,
     canUndo,
     canRedo,
+    recordHistory,
   } = useCanvasStore(useShallow((state) => ({
+    cards: state.cards,
     addCard: state.addCard,
+    updateCard: state.updateCard,
     toggleConnectingMode: state.toggleConnectingMode,
     isConnectingMode: state.isConnectingMode,
+    selectedCardIds: state.selectedCardIds,
+    selectCards: state.selectCards,
     undo: state.undo,
     redo: state.redo,
     canUndo: state.history.length > 0,
     canRedo: state.future.length > 0,
+    recordHistory: state.recordHistory,
   })));
   const [activeTool, setActiveTool] = useState('select');
 
@@ -31,6 +41,44 @@ const LeftToolbar = () => {
     }
 
     if (isConnectingMode) toggleConnectingMode();
+  };
+
+  const getFilePreviewType = (file) => {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type === 'application/pdf') return 'pdf';
+    if (file.type.startsWith('text/')) return 'text';
+    return 'file';
+  };
+
+  const getFileCardSize = (previewType) => {
+    switch (previewType) {
+      case 'image':
+        return { width: 180, height: 180 };
+      case 'video':
+      case 'pdf':
+        return { width: 320, height: 220 };
+      case 'text':
+        return { width: 300, height: 220 };
+      default:
+        return { width: 200, height: 160 };
+    }
+  };
+
+  const normalizeUrl = (value) => {
+    const trimmed = value.trim();
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
+    return trimmed;
+  };
+
+  const extractYouTubeId = (value) => {
+    const trimmed = value.trim();
+    const match = trimmed.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/i);
+    if (match) return match[1];
+    if (/^[A-Za-z0-9_-]{6,}$/.test(trimmed)) return trimmed;
+    return null;
   };
 
   const handleAddTextCard = () => {
@@ -82,11 +130,104 @@ const LeftToolbar = () => {
     });
   };
 
+  const handleAddLinkCard = () => {
+    setTool('link');
+    const value = window.prompt('Enter a URL to preview');
+    if (!value) return;
+
+    const url = normalizeUrl(value);
+    const size = { width: 360, height: 240 };
+
+    addCard({
+      type: 'link',
+      url,
+      position: {
+        x: window.innerWidth / 2 - size.width / 2,
+        y: window.innerHeight / 2 - size.height / 2,
+      },
+      size,
+    });
+  };
+
+  const handleAddGroup = () => {
+    setTool('group');
+    const emptySize = { width: 260, height: 180 };
+
+    if (selectedCardIds.length === 0) {
+      addCard({
+        type: 'group',
+        position: {
+          x: window.innerWidth / 2 - emptySize.width / 2,
+          y: window.innerHeight / 2 - emptySize.height / 2,
+        },
+        size: emptySize,
+        childIds: [],
+      });
+      return;
+    }
+
+    const selectedCards = selectedCardIds.map((id) => cards[id]).filter(Boolean);
+    if (selectedCards.length === 0) return;
+
+    const padding = 20;
+    const minX = Math.min(...selectedCards.map((card) => card.position.x));
+    const minY = Math.min(...selectedCards.map((card) => card.position.y));
+    const maxX = Math.max(...selectedCards.map((card) => card.position.x + card.size.width));
+    const maxY = Math.max(...selectedCards.map((card) => card.position.y + card.size.height));
+
+    const groupPosition = { x: minX - padding, y: minY - padding };
+    const groupSize = {
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+
+    recordHistory();
+    const groupId = addCard(
+      {
+        type: 'group',
+        position: groupPosition,
+        size: groupSize,
+        childIds: selectedCardIds,
+      },
+      { skipHistory: true },
+    );
+
+    selectedCardIds.forEach((cardId) => {
+      updateCard(cardId, { groupId }, { skipHistory: true });
+    });
+
+    selectCards([groupId]);
+  };
+
+  const handleAddYouTubeCard = () => {
+    setTool('youtube');
+    const value = window.prompt('Enter a YouTube URL or video ID');
+    if (!value) return;
+
+    const videoId = extractYouTubeId(value);
+    if (!videoId) {
+      window.alert('Invalid YouTube URL or video ID.');
+      return;
+    }
+
+    const size = { width: 360, height: 220 };
+
+    addCard({
+      type: 'youtube',
+      videoId,
+      position: {
+        x: window.innerWidth / 2 - size.width / 2,
+        y: window.innerHeight / 2 - size.height / 2,
+      },
+      size,
+    });
+  };
+
   const handleAddFileCard = () => {
     setTool('upload');
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    fileInput.accept = 'image/*,application/pdf,video/*,text/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     fileInput.style.display = 'none';
 
     fileInput.onchange = (event) => {
@@ -95,25 +236,43 @@ const LeftToolbar = () => {
       if (!file) return;
 
       const reader = new FileReader();
+      const previewType = getFilePreviewType(file);
+      const size = getFileCardSize(previewType);
 
       reader.onload = (loadEvent) => {
         const content = loadEvent.target?.result;
-        const fileType = file.type.split('/')[0] === 'image' ? 'image' : 'file';
+        const position = {
+          x: window.innerWidth / 2 - size.width / 2,
+          y: window.innerHeight / 2 - size.height / 2,
+        };
+
+        if (previewType === 'image') {
+          addCard({
+            type: 'image',
+            content: typeof content === 'string' ? content : '',
+            position,
+            size,
+            fileType: file.type,
+            fileName: file.name,
+          });
+          return;
+        }
 
         addCard({
-          type: fileType,
+          type: 'file',
           content: typeof content === 'string' ? content : '',
-          position: {
-            x: window.innerWidth / 2 - 75,
-            y: window.innerHeight / 2 - 75,
-          },
-          size: {
-            width: 150,
-            height: 150,
-          },
+          position,
+          size,
           fileType: file.type,
+          fileName: file.name,
+          previewType,
         });
       };
+
+      if (previewType === 'text') {
+        reader.readAsText(file);
+        return;
+      }
 
       reader.readAsDataURL(file);
     };
@@ -160,31 +319,21 @@ const LeftToolbar = () => {
           <span className="text-icon">T</span>
         </button>
 
-        <button className="tool-button" title="Add link card">
+        <button className="tool-button" title="Add link card" onClick={handleAddLinkCard}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" fill="currentColor"/>
           </svg>
         </button>
 
-        <button className="tool-button" title="Add YouTube video">
+        <button className="tool-button" title="Add YouTube video" onClick={handleAddYouTubeCard}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M10 16.5l6-4.5-6-4.5v9zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="currentColor"/>
           </svg>
         </button>
 
-        <button className="tool-button" title="Add group">
+        <button className="tool-button" title="Add group" onClick={handleAddGroup}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M4 11h5V5H4v6zm0 7h5v-6H4v6zm6 0h5v-6h-5v6zm6 0h5v-6h-5v6zm-6-7h5V5h-5v6zm6-6v6h5V5h-5z" fill="currentColor"/>
-          </svg>
-        </button>
-
-        <button
-          className={`tool-button ${activeTool === 'shape' ? 'active' : ''}`}
-          title="Shape tool"
-          onClick={() => setTool('shape')}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
           </svg>
         </button>
 

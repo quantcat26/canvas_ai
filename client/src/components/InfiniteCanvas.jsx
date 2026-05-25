@@ -12,6 +12,7 @@ const CARD_TEXT_LINE_HEIGHT = 1.5;
 const CARD_CONTENT_PADDING = 20;
 const AUTO_RESIZE_MIN_HEIGHT = 160;
 const AUTO_RESIZE_MAX_HEIGHT = 620;
+const GROUP_PADDING = 20;
 
 const textMeasureContext = typeof document !== 'undefined'
   ? document.createElement('canvas').getContext('2d')
@@ -122,6 +123,7 @@ const InfiniteCanvas = () => {
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [isHoveringConnection, setIsHoveringConnection] = useState(false);
   const [connectionStartCardId, setConnectionStartCardId] = useState(null);
+  const [connectionStartAnchor, setConnectionStartAnchor] = useState(null);
   const [tempConnectionPoints, setTempConnectionPoints] = useState(null);
   const [isDraggingCard, setIsDraggingCard] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -143,6 +145,7 @@ const InfiniteCanvas = () => {
   const [cardStartPos, setCardStartPos] = useState({ x: 0, y: 0 });
   const [activeEdge, setActiveEdge] = useState(null);
   const [cursorStyle, setCursorStyle] = useState('default');
+  const [hoveredGroupId, setHoveredGroupId] = useState(null);
   const dragHistoryRecordedRef = useRef(false);
   const resizeHistoryRecordedRef = useRef(false);
 
@@ -192,8 +195,12 @@ const InfiniteCanvas = () => {
       setCursorCanvasPosition({ x: canvasX, y: canvasY });
 
       if (isConnectingMode && connectionStartCardId && tempConnectionPoints) {
+        const startCard = cards[connectionStartCardId];
+        const startPoint = connectionStartAnchor && startCard
+          ? getPointFromAnchor(startCard, connectionStartAnchor)
+          : tempConnectionPoints.start;
         setTempConnectionPoints({
-          ...tempConnectionPoints,
+          start: startPoint,
           end: { x: canvasX, y: canvasY },
         });
       }
@@ -210,6 +217,21 @@ const InfiniteCanvas = () => {
         const newY = cardStartPos.y + deltaY;
 
         updateCardPosition(draggedCardId, newX, newY);
+
+        const draggedCard = cards[draggedCardId];
+        if (draggedCard && draggedCard.type !== 'group') {
+          const targetGroupId = resolveContainingGroupId({
+            x: newX + draggedCard.size.width / 2,
+            y: newY + draggedCard.size.height / 2,
+          });
+          if (targetGroupId && targetGroupId !== draggedCard.groupId) {
+            setHoveredGroupId(targetGroupId);
+          } else {
+            setHoveredGroupId(null);
+          }
+        } else {
+          setHoveredGroupId(null);
+        }
       } else if (isDraggingCard && e.evt.buttons !== 1) {
         handleDragEnd();
       }
@@ -257,6 +279,10 @@ const InfiniteCanvas = () => {
           },
           { skipHistory: true },
         );
+
+        if (card.groupId) {
+          syncGroupBounds(card.groupId);
+        }
       }
 
       if (!isDraggingCard && !isResizingCard && selectedCardIds.length > 0) {
@@ -325,8 +351,11 @@ const InfiniteCanvas = () => {
 
     const deltaX = x - card.position.x;
     const deltaY = y - card.position.y;
+    const affectedGroupIds = new Set();
+    const isGroupCard = card.type === 'group';
+    const movedCardIds = new Set([cardId]);
 
-    if (selectedCardIds.length > 1 && selectedCardIds.includes(cardId)) {
+    if (selectedCardIds.length > 1 && selectedCardIds.includes(cardId) && !isGroupCard) {
       selectedCardIds.forEach((selectedId) => {
         const selected = cards[selectedId];
         if (selected) {
@@ -340,6 +369,10 @@ const InfiniteCanvas = () => {
             },
             { skipHistory: true },
           );
+          movedCardIds.add(selectedId);
+          if (selected.groupId) {
+            affectedGroupIds.add(selected.groupId);
+          }
         }
       });
     } else {
@@ -350,15 +383,47 @@ const InfiniteCanvas = () => {
         },
         { skipHistory: true },
       );
+      if (card.groupId) {
+        affectedGroupIds.add(card.groupId);
+      }
     }
 
+    if (isGroupCard && Array.isArray(card.childIds)) {
+      card.childIds.forEach((childId) => {
+        const child = cards[childId];
+        if (!child) return;
+        updateCard(
+          childId,
+          {
+            position: {
+              x: child.position.x + deltaX,
+              y: child.position.y + deltaY,
+            },
+          },
+          { skipHistory: true },
+        );
+        movedCardIds.add(childId);
+        if (child.groupId) {
+          affectedGroupIds.add(child.groupId);
+        }
+      });
+      affectedGroupIds.add(cardId);
+    }
+
+    affectedGroupIds.forEach((groupId) => syncGroupBounds(groupId));
+
     Object.values(connections).forEach((connection) => {
-      if (connection.startCardId === cardId || connection.endCardId === cardId) {
+      if (movedCardIds.has(connection.startCardId) || movedCardIds.has(connection.endCardId)) {
         const startCard = cards[connection.startCardId];
         const endCard = cards[connection.endCardId];
 
         if (startCard && endCard) {
-          const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
+          const { startPoint, endPoint } = calculateConnectionPoints(
+            startCard,
+            endCard,
+            connection.startAnchor,
+            connection.endAnchor,
+          );
           updateConnection(
             connection.id,
             {
@@ -479,7 +544,71 @@ const InfiniteCanvas = () => {
     setCardInitialPosition({ x: card.position.x, y: card.position.y });
   };
 
+  const isPointInsideRect = (point, rect) => {
+    return (
+      point.x >= rect.position.x &&
+      point.x <= rect.position.x + rect.size.width &&
+      point.y >= rect.position.y &&
+      point.y <= rect.position.y + rect.size.height
+    );
+  };
+
+  const resolveContainingGroupId = (point) => {
+    const groupCards = Object.values(cards).filter((card) => card.type === 'group');
+    if (groupCards.length === 0) return null;
+
+    const sortedGroups = [...groupCards].sort((a, b) => {
+      const areaA = a.size.width * a.size.height;
+      const areaB = b.size.width * b.size.height;
+      return areaA - areaB;
+    });
+
+    const match = sortedGroups.find((group) => isPointInsideRect(point, group));
+    return match ? match.id : null;
+  };
+
+  const updateGroupMembership = (cardIds) => {
+    if (cardIds.length === 0) return;
+
+    cardIds.forEach((cardId) => {
+      const card = cards[cardId];
+      if (!card || card.type === 'group') return;
+
+      const center = {
+        x: card.position.x + card.size.width / 2,
+        y: card.position.y + card.size.height / 2,
+      };
+      const nextGroupId = resolveContainingGroupId(center);
+
+      if (nextGroupId === card.groupId) return;
+
+      if (card.groupId && cards[card.groupId]?.type === 'group') {
+        const oldGroup = cards[card.groupId];
+        const nextChildIds = Array.isArray(oldGroup.childIds)
+          ? oldGroup.childIds.filter((id) => id !== cardId)
+          : [];
+        updateCard(oldGroup.id, { childIds: nextChildIds }, { skipHistory: true });
+        syncGroupBounds(oldGroup.id);
+      }
+
+      if (nextGroupId) {
+        const newGroup = cards[nextGroupId];
+        const childIds = Array.isArray(newGroup.childIds) ? newGroup.childIds : [];
+        if (!childIds.includes(cardId)) {
+          updateCard(nextGroupId, { childIds: [...childIds, cardId] }, { skipHistory: true });
+        }
+        updateCard(cardId, { groupId: nextGroupId }, { skipHistory: true });
+        syncGroupBounds(nextGroupId);
+      } else {
+        updateCard(cardId, { groupId: null }, { skipHistory: true });
+      }
+    });
+  };
+
   const handleDragEnd = () => {
+    let shouldUpdateGroups = false;
+    let movedCardIds = [];
+
     if (isDraggingCard && draggedCardId) {
       const dragDuration = Date.now() - dragStartTimeRef.current;
 
@@ -490,6 +619,7 @@ const InfiniteCanvas = () => {
           const dragDistance = calculateDistance(dragStartPos, currentPosition);
           if (dragDuration > dragThresholdTime || dragDistance > dragThresholdDistance) {
             setWasCardDragged(true);
+            shouldUpdateGroups = true;
           }
         }
       }
@@ -497,8 +627,23 @@ const InfiniteCanvas = () => {
       setTimeout(() => {
         setWasCardDragged(false);
       }, 100);
+
+      if (shouldUpdateGroups) {
+        const draggedCard = cards[draggedCardId];
+        if (draggedCard && draggedCard.type !== 'group') {
+          movedCardIds = selectedCardIds.includes(draggedCardId) && selectedCardIds.length > 1
+            ? selectedCardIds
+            : [draggedCardId];
+          movedCardIds = movedCardIds.filter((id) => cards[id] && cards[id].type !== 'group');
+        }
+      }
     }
 
+    if (shouldUpdateGroups && movedCardIds.length > 0) {
+      updateGroupMembership(movedCardIds);
+    }
+
+    setHoveredGroupId(null);
     setIsDraggingCard(false);
     setDraggedCardId(null);
     setIsResizingCard(false);
@@ -515,20 +660,26 @@ const InfiniteCanvas = () => {
     if (!card) return;
 
     if (isConnectingMode) {
+      const pointerPos = stage?.getPointerPosition();
+      const canvasPointer = pointerPos
+        ? { x: (pointerPos.x - panX) / zoom, y: (pointerPos.y - panY) / zoom }
+        : null;
+
       if (!connectionStartCardId) {
+        const targetPoint = canvasPointer || getCardCenter(card);
+        const startEdgePoint = getEdgeIntersection(card, targetPoint);
+        const startAnchor = getAnchorFromPoint(card, startEdgePoint);
+        const startPoint = getPointFromAnchor(card, startAnchor);
+
         setConnectionStartCardId(cardId);
+        setConnectionStartAnchor(startAnchor);
         setTempConnectionPoints({
-          start: {
-            x: card.position.x + card.size.width / 2,
-            y: card.position.y + card.size.height / 2,
-          },
-          end: {
-            x: card.position.x + card.size.width / 2,
-            y: card.position.y + card.size.height / 2,
-          },
+          start: startPoint,
+          end: startPoint,
         });
       } else if (cardId === connectionStartCardId) {
         setConnectionStartCardId(null);
+        setConnectionStartAnchor(null);
         setTempConnectionPoints(null);
       } else if (cardId !== connectionStartCardId) {
         const startCard = cards[connectionStartCardId];
@@ -536,17 +687,31 @@ const InfiniteCanvas = () => {
         const { addConnection } = useCanvasStore.getState();
 
         if (startCard && endCard) {
-          const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
+          const targetPoint = canvasPointer || getCardCenter(endCard);
+          const endEdgePoint = getEdgeIntersection(endCard, targetPoint);
+          const endAnchor = getAnchorFromPoint(endCard, endEdgePoint);
+          const startAnchor = connectionStartAnchor
+            || getAnchorFromPoint(startCard, getEdgeIntersection(startCard, getCardCenter(endCard)));
+
+          const { startPoint, endPoint } = calculateConnectionPoints(
+            startCard,
+            endCard,
+            startAnchor,
+            endAnchor,
+          );
 
           addConnection({
             startCardId: connectionStartCardId,
             endCardId: cardId,
             startPoint,
             endPoint,
+            startAnchor,
+            endAnchor,
           });
         }
 
         setConnectionStartCardId(null);
+        setConnectionStartAnchor(null);
         setTempConnectionPoints(null);
       }
       return;
@@ -569,7 +734,10 @@ const InfiniteCanvas = () => {
     }
 
     if (card.type === 'text') {
-      selectCards([cardId]);
+      const isShiftPressed = 'shiftKey' in e.evt && Boolean(e.evt.shiftKey);
+      if (!isShiftPressed) {
+        selectCards([cardId]);
+      }
     }
   };
 
@@ -681,6 +849,10 @@ const InfiniteCanvas = () => {
 
     if (fileType.startsWith('application/pdf')) {
       return '📕';
+    } else if (fileType.startsWith('video/')) {
+      return '🎬';
+    } else if (fileType.startsWith('text/')) {
+      return '📄';
     } else if (fileType.startsWith('application/msword') ||
                fileType.includes('wordprocessingml')) {
       return '📘';
@@ -700,6 +872,10 @@ const InfiniteCanvas = () => {
 
     if (fileType.startsWith('application/pdf')) {
       return 'PDF file';
+    } else if (fileType.startsWith('video/')) {
+      return 'Video file';
+    } else if (fileType.startsWith('text/')) {
+      return 'Text file';
     } else if (fileType.startsWith('application/msword') ||
                fileType.includes('wordprocessingml')) {
       return 'Word file';
@@ -715,45 +891,185 @@ const InfiniteCanvas = () => {
     return parts.length > 1 ? `${parts[1].toUpperCase()} file` : 'File';
   };
 
-  const calculateConnectionPoints = (startCard, endCard) => {
-    const startCenter = {
-      x: startCard.position.x + startCard.size.width / 2,
-      y: startCard.position.y + startCard.size.height / 2,
-    };
-    const endCenter = {
-      x: endCard.position.x + endCard.size.width / 2,
-      y: endCard.position.y + endCard.size.height / 2,
-    };
-
-    const startEdges = [
-      { x: startCard.position.x + startCard.size.width, y: startCenter.y },
-      { x: startCenter.x, y: startCard.position.y },
-      { x: startCard.position.x, y: startCenter.y },
-      { x: startCenter.x, y: startCard.position.y + startCard.size.height },
-    ];
-    const endEdges = [
-      { x: endCard.position.x + endCard.size.width, y: endCenter.y },
-      { x: endCenter.x, y: endCard.position.y },
-      { x: endCard.position.x, y: endCenter.y },
-      { x: endCenter.x, y: endCard.position.y + endCard.size.height },
-    ];
-
-    let minDistance = Infinity;
-    let bestStartPoint = startCenter;
-    let bestEndPoint = endCenter;
-
-    for (const startEdge of startEdges) {
-      for (const endEdge of endEdges) {
-        const distance = calculateDistance(startEdge, endEdge);
-        if (distance < minDistance) {
-          minDistance = distance;
-          bestStartPoint = startEdge;
-          bestEndPoint = endEdge;
-        }
-      }
+  const renderCardPreview = (card) => {
+    if (card.type === 'link') {
+      return (
+        <iframe
+          className={styles.previewFrame}
+          src={card.url}
+          title={card.url || 'Link preview'}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+        />
+      );
     }
 
-    return { startPoint: bestStartPoint, endPoint: bestEndPoint };
+    if (card.type === 'youtube') {
+      const embedUrl = card.videoId
+        ? `https://www.youtube.com/embed/${card.videoId}?rel=0`
+        : '';
+      return (
+        <iframe
+          className={styles.previewFrame}
+          src={embedUrl}
+          title="YouTube preview"
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      );
+    }
+
+    if (card.previewType === 'pdf') {
+      return (
+        <iframe
+          className={styles.previewFrame}
+          src={card.content}
+          title={card.fileName || 'PDF preview'}
+        />
+      );
+    }
+
+    if (card.previewType === 'video') {
+      return (
+        <video
+          className={styles.previewFrame}
+          src={card.content}
+          muted
+          loop
+          playsInline
+          autoPlay
+          preload="metadata"
+        />
+      );
+    }
+
+    if (card.previewType === 'text') {
+      const previewText = (card.content || '').slice(0, 4000);
+      return (
+        <pre className={styles.previewText}>
+          {previewText || 'Text preview is empty.'}
+        </pre>
+      );
+    }
+
+    return null;
+  };
+
+  const getCardCenter = (card) => ({
+    x: card.position.x + card.size.width / 2,
+    y: card.position.y + card.size.height / 2,
+  });
+
+  const getEdgeIntersection = (card, targetPoint) => {
+    const center = getCardCenter(card);
+    const dx = targetPoint.x - center.x;
+    const dy = targetPoint.y - center.y;
+
+    if (dx === 0 && dy === 0) {
+      return center;
+    }
+
+    const halfWidth = card.size.width / 2;
+    const halfHeight = card.size.height / 2;
+    const scaleX = Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Infinity;
+    const scaleY = Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Infinity;
+    const scale = Math.min(scaleX, scaleY);
+
+    return {
+      x: center.x + dx * scale,
+      y: center.y + dy * scale,
+    };
+  };
+
+  const getAnchorFromPoint = (card, point) => {
+    const left = card.position.x;
+    const right = card.position.x + card.size.width;
+    const top = card.position.y;
+    const bottom = card.position.y + card.size.height;
+
+    const distances = [
+      { edge: 'left', value: Math.abs(point.x - left) },
+      { edge: 'right', value: Math.abs(point.x - right) },
+      { edge: 'top', value: Math.abs(point.y - top) },
+      { edge: 'bottom', value: Math.abs(point.y - bottom) },
+    ];
+
+    distances.sort((a, b) => a.value - b.value);
+    const edge = distances[0].edge;
+
+    if (edge === 'left' || edge === 'right') {
+      const ratio = (point.y - top) / card.size.height;
+      return { edge, ratio: Math.min(1, Math.max(0, ratio)) };
+    }
+
+    const ratio = (point.x - left) / card.size.width;
+    return { edge, ratio: Math.min(1, Math.max(0, ratio)) };
+  };
+
+  const getPointFromAnchor = (card, anchor) => {
+    const left = card.position.x;
+    const right = card.position.x + card.size.width;
+    const top = card.position.y;
+    const bottom = card.position.y + card.size.height;
+
+    switch (anchor.edge) {
+      case 'left':
+        return { x: left, y: top + anchor.ratio * card.size.height };
+      case 'right':
+        return { x: right, y: top + anchor.ratio * card.size.height };
+      case 'top':
+        return { x: left + anchor.ratio * card.size.width, y: top };
+      case 'bottom':
+      default:
+        return { x: left + anchor.ratio * card.size.width, y: bottom };
+    }
+  };
+
+  const calculateConnectionPoints = (startCard, endCard, startAnchor, endAnchor) => {
+    const startTarget = endAnchor ? getPointFromAnchor(endCard, endAnchor) : getCardCenter(endCard);
+    const endTarget = startAnchor ? getPointFromAnchor(startCard, startAnchor) : getCardCenter(startCard);
+
+    const startPoint = startAnchor
+      ? getPointFromAnchor(startCard, startAnchor)
+      : getEdgeIntersection(startCard, startTarget);
+    const endPoint = endAnchor
+      ? getPointFromAnchor(endCard, endAnchor)
+      : getEdgeIntersection(endCard, endTarget);
+
+    return { startPoint, endPoint };
+  };
+
+  const getGroupBounds = (groupId) => {
+    const { cards: currentCards } = useCanvasStore.getState();
+    const group = currentCards[groupId];
+    if (!group || group.type !== 'group' || !Array.isArray(group.childIds) || group.childIds.length === 0) {
+      return null;
+    }
+
+    const childCards = group.childIds.map((id) => currentCards[id]).filter(Boolean);
+    if (childCards.length === 0) return null;
+
+    const minX = Math.min(...childCards.map((card) => card.position.x));
+    const minY = Math.min(...childCards.map((card) => card.position.y));
+    const maxX = Math.max(...childCards.map((card) => card.position.x + card.size.width));
+    const maxY = Math.max(...childCards.map((card) => card.position.y + card.size.height));
+
+    return {
+      position: { x: minX - GROUP_PADDING, y: minY - GROUP_PADDING },
+      size: {
+        width: maxX - minX + GROUP_PADDING * 2,
+        height: maxY - minY + GROUP_PADDING * 2,
+      },
+    };
+  };
+
+  const syncGroupBounds = (groupId) => {
+    const bounds = getGroupBounds(groupId);
+    if (!bounds) return;
+    const { updateCard: updateGroupCard } = useCanvasStore.getState();
+    updateGroupCard(groupId, bounds, { skipHistory: true });
   };
 
   const handleTextEditingComplete = () => {
@@ -932,11 +1248,51 @@ const InfiniteCanvas = () => {
     });
   };
 
+  const handleUngroupCard = () => {
+    if (!selectedCard || !selectedCard.groupId) return;
+    const group = cards[selectedCard.groupId];
+    recordHistory();
+
+    updateCard(selectedCard.id, { groupId: null }, { skipHistory: true });
+
+    if (group?.type === 'group' && Array.isArray(group.childIds)) {
+      const nextChildIds = group.childIds.filter((id) => id !== selectedCard.id);
+      updateCard(group.id, { childIds: nextChildIds }, { skipHistory: true });
+      if (nextChildIds.length > 0) {
+        syncGroupBounds(group.id);
+      }
+    }
+  };
+
   const handleDeleteCard = () => {
     if (!selectedCard) return;
     removeCard(selectedCard.id);
     clearSelection();
   };
+
+  const previewCards = useMemo(() => {
+    return Object.values(cards).filter((card) => {
+      if (card.type === 'link') return true;
+      if (card.type === 'youtube') return true;
+      return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
+    });
+  }, [cards]);
+
+  const orderedCards = useMemo(() => {
+    const list = Object.values(cards);
+    return list.sort((a, b) => {
+      if (a.type === 'group' && b.type !== 'group') return -1;
+      if (a.type !== 'group' && b.type === 'group') return 1;
+      return 0;
+    });
+  }, [cards]);
+
+  const getPreviewStyle = (card) => ({
+    left: `${card.position.x * zoom + panX}px`,
+    top: `${card.position.y * zoom + panY}px`,
+    width: `${card.size.width * zoom}px`,
+    height: `${card.size.height * zoom}px`,
+  });
 
   return (
     <div className={styles.canvasContainer} style={{ cursor: cursorStyle }}>
@@ -1016,7 +1372,11 @@ const InfiniteCanvas = () => {
             />
           ))}
 
-          {Object.values(cards).map((card) => (
+          {orderedCards.map((card) => {
+            const isGroup = card.type === 'group';
+            const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
+            const isCardSelected = selectedCardIds.includes(card.id);
+            return (
             <Group
               key={card.id}
               x={card.position.x}
@@ -1033,16 +1393,30 @@ const InfiniteCanvas = () => {
               <Rect
                 width={card.size.width}
                 height={card.size.height}
-                fill="white"
-                stroke={selectedCardIds.includes(card.id) ? '#4285f4' : '#ddd'}
-                strokeWidth={selectedCardIds.includes(card.id) ? 2 : 1}
-                shadowColor="rgba(0,0,0,0.2)"
-                shadowBlur={5}
-                shadowOffset={{ x: 0, y: 2 }}
+                fill={isGroup
+                  ? (isGroupHighlighted ? 'rgba(34, 197, 94, 0.12)' : 'rgba(47, 107, 255, 0.06)')
+                  : 'white'}
+                stroke={isGroupHighlighted ? '#22c55e' : isCardSelected ? '#4285f4' : '#ddd'}
+                strokeWidth={isGroup ? (isGroupHighlighted ? 2.5 : 1) : isCardSelected ? 2 : 1}
+                shadowColor={isGroupHighlighted ? 'rgba(34, 197, 94, 0.45)' : isGroup ? 'transparent' : 'rgba(0,0,0,0.2)'}
+                shadowBlur={isGroup ? (isGroupHighlighted ? 12 : 0) : 5}
+                shadowOffset={isGroup ? { x: 0, y: 0 } : { x: 0, y: 2 }}
+                dash={isGroup ? [6, 4] : undefined}
                 cornerRadius={5}
               />
 
-              {card.type === 'text' ? (
+              {card.type === 'group' ? (
+                <Text
+                  x={12}
+                  y={10}
+                  width={card.size.width - 24}
+                  height={20}
+                  text="Group"
+                  fontSize={13}
+                  fill={isGroupHighlighted ? '#14532d' : '#64748b'}
+                  listening={false}
+                />
+              ) : card.type === 'text' ? (
                 <MarkdownCard
                   x={cardContentPadding}
                   y={cardContentPadding}
@@ -1078,7 +1452,7 @@ const InfiniteCanvas = () => {
                     y={55}
                     width={card.size.width}
                     height={30}
-                    text={getFileTypeName(card.fileType)}
+                    text={card.fileName || getFileTypeName(card.fileType)}
                     fontSize={16}
                     fill="#333"
                     align="center"
@@ -1096,11 +1470,72 @@ const InfiniteCanvas = () => {
                     listening={false}
                   />
                 </Group>
+              ) : card.type === 'link' ? (
+                <Group>
+                  <Text
+                    x={0}
+                    y={18}
+                    width={card.size.width}
+                    height={30}
+                    text="🌐"
+                    fontSize={22}
+                    fill="#1f2a37"
+                    align="center"
+                    listening={false}
+                  />
+                  <Text
+                    x={16}
+                    y={50}
+                    width={card.size.width - 32}
+                    height={card.size.height - 60}
+                    text={card.url || 'Link preview'}
+                    fontSize={13}
+                    fill="#475569"
+                    align="center"
+                    listening={false}
+                  />
+                </Group>
+              ) : card.type === 'youtube' ? (
+                <Group>
+                  <Text
+                    x={0}
+                    y={18}
+                    width={card.size.width}
+                    height={30}
+                    text="▶️"
+                    fontSize={22}
+                    fill="#1f2a37"
+                    align="center"
+                    listening={false}
+                  />
+                  <Text
+                    x={16}
+                    y={50}
+                    width={card.size.width - 32}
+                    height={card.size.height - 60}
+                    text={card.videoId ? `YouTube: ${card.videoId}` : 'YouTube preview'}
+                    fontSize={13}
+                    fill="#475569"
+                    align="center"
+                    listening={false}
+                  />
+                </Group>
               ) : null}
             </Group>
-          ))}
+          );
+          })}
         </Layer>
       </Stage>
+
+      {previewCards.map((card) => (
+        <div
+          key={`preview-${card.id}`}
+          className={styles.cardPreviewOverlay}
+          style={getPreviewStyle(card)}
+        >
+          {renderCardPreview(card)}
+        </div>
+      ))}
 
       {selectedCard && !editingCardId && (
         <div
@@ -1116,12 +1551,19 @@ const InfiniteCanvas = () => {
           <button className={styles.cardOptionButton} onClick={handleResize}>
             Resize
           </button>
-          <button className={styles.cardOptionButton} onClick={handleCopyCard}>
-            Copy
-          </button>
+          {selectedCard.type !== 'group' && (
+            <button className={styles.cardOptionButton} onClick={handleCopyCard}>
+              Copy
+            </button>
+          )}
           <button className={styles.cardOptionButton} onClick={handleDuplicateCard}>
             Duplicate
           </button>
+          {selectedCard.groupId && (
+            <button className={styles.cardOptionButton} onClick={handleUngroupCard}>
+              Ungroup
+            </button>
+          )}
           <button className={`${styles.cardOptionButton} ${styles.dangerButton}`} onClick={handleDeleteCard}>
             Delete
           </button>
