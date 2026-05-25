@@ -1313,6 +1313,23 @@ const InfiniteCanvas = () => {
     });
   };
 
+  const handleCollapsedGroupExpand = (cardId, e) => {
+    e.evt.stopPropagation();
+    const card = cards[cardId];
+    if (!card || card.type !== 'group' || !card.collapsed) return;
+
+    selectCards([cardId]);
+    const restored = card.expandedSize || card.size;
+    updateCard(cardId, {
+      collapsed: false,
+      size: restored,
+    });
+
+    if (card.autoResize !== false) {
+      syncGroupBounds(cardId);
+    }
+  };
+
   const handleResize = () => {
     if (!selectedCard) return;
 
@@ -1557,6 +1574,8 @@ const InfiniteCanvas = () => {
             }
             const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
             const isCardSelected = selectedCardIds.includes(card.id);
+            const isCollapsedGroup = isGroup && card.collapsed;
+            const collapsedGroupDragHeight = isCollapsedGroup ? card.size.height * COLLAPSED_GROUP_DRAG_RATIO : 0;
             return (
             <Group
               key={card.id}
@@ -1565,10 +1584,10 @@ const InfiniteCanvas = () => {
               width={card.size.width}
               height={card.size.height}
               draggable={false}
-              onMouseDown={(e) => handleCardMouseDown(card.id, e)}
-              onClick={(e) => handleCardClick(card.id, e)}
-              onDblClick={(e) => handleCardDoubleClick(card.id, e)}
-              onTap={() => selectCards([card.id])}
+              onMouseDown={isCollapsedGroup ? undefined : (e) => handleCardMouseDown(card.id, e)}
+              onClick={isCollapsedGroup ? undefined : (e) => handleCardClick(card.id, e)}
+              onDblClick={isCollapsedGroup ? undefined : (e) => handleCardDoubleClick(card.id, e)}
+              onTap={isCollapsedGroup ? undefined : () => selectCards([card.id])}
               rotation={card.angle || 0}
               listening={!isInCollapsedGroup}
               clipX={collapsedClip ? collapsedClip.x - card.position.x : undefined}
@@ -1590,6 +1609,30 @@ const InfiniteCanvas = () => {
                 dash={isGroup ? [6, 4] : undefined}
                 cornerRadius={5}
               />
+
+              {isCollapsedGroup && (
+                <>
+                  <Rect
+                    width={card.size.width}
+                    height={collapsedGroupDragHeight}
+                    fill="transparent"
+                    listening
+                    onMouseDown={(e) => handleCardMouseDown(card.id, e)}
+                    onClick={(e) => handleCardClick(card.id, e)}
+                    perfectDrawEnabled={false}
+                  />
+                  <Rect
+                    y={collapsedGroupDragHeight}
+                    width={card.size.width}
+                    height={card.size.height - collapsedGroupDragHeight}
+                    fill="transparent"
+                    listening
+                    onMouseDown={(e) => e.evt.stopPropagation()}
+                    onClick={(e) => handleCollapsedGroupExpand(card.id, e)}
+                    perfectDrawEnabled={false}
+                  />
+                </>
+              )}
 
               {card.type === 'group' ? (
                 <Text
