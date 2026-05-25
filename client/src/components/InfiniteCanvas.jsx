@@ -528,7 +528,71 @@ const InfiniteCanvas = () => {
     setCardInitialPosition({ x: card.position.x, y: card.position.y });
   };
 
+  const isPointInsideRect = (point, rect) => {
+    return (
+      point.x >= rect.position.x &&
+      point.x <= rect.position.x + rect.size.width &&
+      point.y >= rect.position.y &&
+      point.y <= rect.position.y + rect.size.height
+    );
+  };
+
+  const resolveContainingGroupId = (point) => {
+    const groupCards = Object.values(cards).filter((card) => card.type === 'group');
+    if (groupCards.length === 0) return null;
+
+    const sortedGroups = [...groupCards].sort((a, b) => {
+      const areaA = a.size.width * a.size.height;
+      const areaB = b.size.width * b.size.height;
+      return areaA - areaB;
+    });
+
+    const match = sortedGroups.find((group) => isPointInsideRect(point, group));
+    return match ? match.id : null;
+  };
+
+  const updateGroupMembership = (cardIds) => {
+    if (cardIds.length === 0) return;
+
+    cardIds.forEach((cardId) => {
+      const card = cards[cardId];
+      if (!card || card.type === 'group') return;
+
+      const center = {
+        x: card.position.x + card.size.width / 2,
+        y: card.position.y + card.size.height / 2,
+      };
+      const nextGroupId = resolveContainingGroupId(center);
+
+      if (nextGroupId === card.groupId) return;
+
+      if (card.groupId && cards[card.groupId]?.type === 'group') {
+        const oldGroup = cards[card.groupId];
+        const nextChildIds = Array.isArray(oldGroup.childIds)
+          ? oldGroup.childIds.filter((id) => id !== cardId)
+          : [];
+        updateCard(oldGroup.id, { childIds: nextChildIds }, { skipHistory: true });
+        syncGroupBounds(oldGroup.id);
+      }
+
+      if (nextGroupId) {
+        const newGroup = cards[nextGroupId];
+        const childIds = Array.isArray(newGroup.childIds) ? newGroup.childIds : [];
+        if (!childIds.includes(cardId)) {
+          updateCard(nextGroupId, { childIds: [...childIds, cardId] }, { skipHistory: true });
+        }
+        updateCard(cardId, { groupId: nextGroupId }, { skipHistory: true });
+        syncGroupBounds(nextGroupId);
+      } else {
+        updateCard(cardId, { groupId: null }, { skipHistory: true });
+      }
+    });
+  };
+
   const handleDragEnd = () => {
+    let shouldUpdateGroups = false;
+    let movedCardIds = [];
+
     if (isDraggingCard && draggedCardId) {
       const dragDuration = Date.now() - dragStartTimeRef.current;
 
@@ -539,6 +603,7 @@ const InfiniteCanvas = () => {
           const dragDistance = calculateDistance(dragStartPos, currentPosition);
           if (dragDuration > dragThresholdTime || dragDistance > dragThresholdDistance) {
             setWasCardDragged(true);
+            shouldUpdateGroups = true;
           }
         }
       }
@@ -546,6 +611,20 @@ const InfiniteCanvas = () => {
       setTimeout(() => {
         setWasCardDragged(false);
       }, 100);
+
+      if (shouldUpdateGroups) {
+        const draggedCard = cards[draggedCardId];
+        if (draggedCard && draggedCard.type !== 'group') {
+          movedCardIds = selectedCardIds.includes(draggedCardId) && selectedCardIds.length > 1
+            ? selectedCardIds
+            : [draggedCardId];
+          movedCardIds = movedCardIds.filter((id) => cards[id] && cards[id].type !== 'group');
+        }
+      }
+    }
+
+    if (shouldUpdateGroups && movedCardIds.length > 0) {
+      updateGroupMembership(movedCardIds);
     }
 
     setIsDraggingCard(false);
