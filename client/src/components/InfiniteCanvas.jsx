@@ -1833,7 +1833,9 @@ const InfiniteCanvas = () => {
           className={styles.cardPreviewOverlay}
           style={{
             ...getPreviewStyle(card),
-            pointerEvents: isInteractivePreview(card) ? 'auto' : 'none',
+            pointerEvents: (isDraggingCard || isResizingCard)
+              ? 'none'
+              : (isInteractivePreview(card) ? 'auto' : 'none'),
           }}
         >
           {renderCardPreview(card)}
