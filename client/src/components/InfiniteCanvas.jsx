@@ -145,6 +145,7 @@ const InfiniteCanvas = () => {
   const [cardStartPos, setCardStartPos] = useState({ x: 0, y: 0 });
   const [activeEdge, setActiveEdge] = useState(null);
   const [cursorStyle, setCursorStyle] = useState('default');
+  const [hoveredGroupId, setHoveredGroupId] = useState(null);
   const dragHistoryRecordedRef = useRef(false);
   const resizeHistoryRecordedRef = useRef(false);
 
@@ -216,6 +217,21 @@ const InfiniteCanvas = () => {
         const newY = cardStartPos.y + deltaY;
 
         updateCardPosition(draggedCardId, newX, newY);
+
+        const draggedCard = cards[draggedCardId];
+        if (draggedCard && draggedCard.type !== 'group') {
+          const targetGroupId = resolveContainingGroupId({
+            x: newX + draggedCard.size.width / 2,
+            y: newY + draggedCard.size.height / 2,
+          });
+          if (targetGroupId && targetGroupId !== draggedCard.groupId) {
+            setHoveredGroupId(targetGroupId);
+          } else {
+            setHoveredGroupId(null);
+          }
+        } else {
+          setHoveredGroupId(null);
+        }
       } else if (isDraggingCard && e.evt.buttons !== 1) {
         handleDragEnd();
       }
@@ -627,6 +643,7 @@ const InfiniteCanvas = () => {
       updateGroupMembership(movedCardIds);
     }
 
+    setHoveredGroupId(null);
     setIsDraggingCard(false);
     setDraggedCardId(null);
     setIsResizingCard(false);
@@ -1341,6 +1358,8 @@ const InfiniteCanvas = () => {
 
           {orderedCards.map((card) => {
             const isGroup = card.type === 'group';
+            const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
+            const isCardSelected = selectedCardIds.includes(card.id);
             return (
             <Group
               key={card.id}
@@ -1358,11 +1377,13 @@ const InfiniteCanvas = () => {
               <Rect
                 width={card.size.width}
                 height={card.size.height}
-                fill={isGroup ? 'rgba(47, 107, 255, 0.06)' : 'white'}
-                stroke={selectedCardIds.includes(card.id) ? '#4285f4' : '#ddd'}
-                strokeWidth={selectedCardIds.includes(card.id) ? 2 : 1}
-                shadowColor={isGroup ? 'transparent' : 'rgba(0,0,0,0.2)'}
-                shadowBlur={isGroup ? 0 : 5}
+                fill={isGroup
+                  ? (isGroupHighlighted ? 'rgba(34, 197, 94, 0.12)' : 'rgba(47, 107, 255, 0.06)')
+                  : 'white'}
+                stroke={isGroupHighlighted ? '#22c55e' : isCardSelected ? '#4285f4' : '#ddd'}
+                strokeWidth={isGroup ? (isGroupHighlighted ? 2.5 : 1) : isCardSelected ? 2 : 1}
+                shadowColor={isGroupHighlighted ? 'rgba(34, 197, 94, 0.45)' : isGroup ? 'transparent' : 'rgba(0,0,0,0.2)'}
+                shadowBlur={isGroup ? (isGroupHighlighted ? 12 : 0) : 5}
                 shadowOffset={isGroup ? { x: 0, y: 0 } : { x: 0, y: 2 }}
                 dash={isGroup ? [6, 4] : undefined}
                 cornerRadius={5}
@@ -1376,7 +1397,7 @@ const InfiniteCanvas = () => {
                   height={20}
                   text="Group"
                   fontSize={13}
-                  fill="#64748b"
+                  fill={isGroupHighlighted ? '#14532d' : '#64748b'}
                   listening={false}
                 />
               ) : card.type === 'text' ? (
