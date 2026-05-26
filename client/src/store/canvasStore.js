@@ -10,6 +10,60 @@ const cloneSnapshot = (snapshot) => {
   return JSON.parse(JSON.stringify(snapshot));
 };
 
+const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
+
+const getNextZIndex = (cards) => {
+  const values = Object.values(cards);
+  if (values.length === 0) return 0;
+  const maxValue = Math.max(...values.map((card) => getCardZIndex(card)));
+  return maxValue + 1;
+};
+
+const reorderCardsToFront = (cards, cardIds) => {
+  if (!cardIds || cardIds.length === 0) return cards;
+
+  const reorderableIds = new Set(
+    cardIds.filter((id) => {
+      const card = cards[id];
+      if (!card) return false;
+      if (card.type !== 'group') return true;
+      return Boolean(card.collapsed);
+    })
+  );
+
+  if (reorderableIds.size === 0) return cards;
+
+  const ordered = Object.values(cards)
+    .map((card, index) => ({ card, index }))
+    .sort((a, b) => {
+      const diff = getCardZIndex(a.card) - getCardZIndex(b.card);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ card }) => card);
+
+  const selected = [];
+  const unselected = [];
+
+  ordered.forEach((card) => {
+    if (reorderableIds.has(card.id)) {
+      selected.push(card);
+    } else {
+      unselected.push(card);
+    }
+  });
+
+  const nextOrder = [...unselected, ...selected];
+  const nextCards = { ...cards };
+
+  nextOrder.forEach((card, index) => {
+    if (getCardZIndex(card) !== index) {
+      nextCards[card.id] = { ...card, zIndex: index };
+    }
+  });
+
+  return nextCards;
+};
+
 const useCanvasStore = create((set, get) => ({
   zoom: 1,
   panX: 0,
@@ -144,12 +198,17 @@ const useCanvasStore = create((set, get) => ({
       get().recordHistory();
     }
     const id = uuidv4();
-    set((state) => ({
-      cards: {
-        ...state.cards,
-        [id]: { ...card, id },
-      },
-    }));
+    set((state) => {
+      const nextZIndex = typeof card.zIndex === 'number'
+        ? card.zIndex
+        : getNextZIndex(state.cards);
+      return {
+        cards: {
+          ...state.cards,
+          [id]: { ...card, id, zIndex: nextZIndex },
+        },
+      };
+    });
     return id;
   },
 
@@ -214,7 +273,21 @@ const useCanvasStore = create((set, get) => ({
     });
   },
 
-  selectCards: (cardIds) => set({ selectedCardIds: cardIds }),
+  selectCards: (cardIds, options = {}) => set((state) => {
+    if (!cardIds || cardIds.length === 0 || options.skipReorder) {
+      return { selectedCardIds: cardIds };
+    }
+
+    const nextCards = reorderCardsToFront(state.cards, cardIds);
+    if (nextCards === state.cards) {
+      return { selectedCardIds: cardIds };
+    }
+
+    return {
+      cards: nextCards,
+      selectedCardIds: cardIds,
+    };
+  }),
 
   addConnection: (connection) => {
     get().recordHistory();

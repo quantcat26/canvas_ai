@@ -120,6 +120,9 @@ const estimateTextCardHeight = (content, cardWidth) => {
   return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
 };
 
+const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
+const isExpandedGroupCard = (card) => card?.type === 'group' && !card.collapsed;
+
 const InfiniteCanvas = () => {
   const stageRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -533,21 +536,22 @@ const InfiniteCanvas = () => {
     setCardStartPos({ x: card.position.x, y: card.position.y });
 
     const isCardAlreadySelected = selectedCardIds.includes(cardId);
+    let nextSelectedIds = selectedCardIds;
 
     if (e.evt.shiftKey) {
       if (!isCardAlreadySelected) {
-        selectCards([...selectedCardIds, cardId]);
-        if (selectedConnectionIds.length > 0) {
-          selectConnections([]);
-        }
+        nextSelectedIds = [...selectedCardIds, cardId];
       }
     } else if (!isCardAlreadySelected) {
-      selectCards([cardId]);
-      if (selectedConnectionIds.length > 0) {
-        selectConnections([]);
-      }
-    } else if (selectedConnectionIds.length > 0) {
+      nextSelectedIds = [cardId];
+    }
+
+    if (selectedConnectionIds.length > 0) {
       selectConnections([]);
+    }
+
+    if (nextSelectedIds.length > 0) {
+      selectCards(nextSelectedIds);
     }
   };
 
@@ -1472,13 +1476,26 @@ const InfiniteCanvas = () => {
     clearSelection();
   };
 
+  const orderedCards = useMemo(() => {
+    const list = Object.values(cards).map((card, index) => ({ card, index }));
+    list.sort((a, b) => {
+      const aIsGroup = isExpandedGroupCard(a.card);
+      const bIsGroup = isExpandedGroupCard(b.card);
+      if (aIsGroup !== bIsGroup) return aIsGroup ? -1 : 1;
+
+      const zDiff = getCardZIndex(a.card) - getCardZIndex(b.card);
+      return zDiff !== 0 ? zDiff : a.index - b.index;
+    });
+    return list.map(({ card }) => card);
+  }, [cards]);
+
   const previewCards = useMemo(() => {
-    return Object.values(cards).filter((card) => {
+    return orderedCards.filter((card) => {
       if (card.type === 'link') return true;
       if (card.type === 'youtube') return true;
       return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
     });
-  }, [cards]);
+  }, [orderedCards]);
 
   const isInteractivePreview = (card) => (
     card.type === 'link' || card.type === 'youtube' || card.previewType === 'video'
@@ -1505,15 +1522,6 @@ const InfiniteCanvas = () => {
 
     return 'Preview';
   };
-
-  const orderedCards = useMemo(() => {
-    const list = Object.values(cards);
-    return list.sort((a, b) => {
-      if (a.type === 'group' && b.type !== 'group') return -1;
-      if (a.type !== 'group' && b.type === 'group') return 1;
-      return 0;
-    });
-  }, [cards]);
 
   const getPreviewStyle = (card) => {
     const inset = isInteractivePreview(card)
