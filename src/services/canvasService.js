@@ -39,12 +39,14 @@ const insertCards = (db, canvasId, cards) => {
   const insertCard = db.prepare(`
     INSERT INTO card (
       id, canvas_id, type, content,
+      url, video_id, preview_type, file_name,
       position_x, position_y, width, height,
       collapsed, expanded_width, expanded_height,
       file_type, angle,
       group_id, group_title, group_child_ids, group_auto_resize
     ) VALUES (
       @id, @canvasId, @type, @content,
+      @url, @videoId, @previewType, @fileName,
       @positionX, @positionY, @width, @height,
       @collapsed, @expandedWidth, @expandedHeight,
       @fileType, @angle,
@@ -66,6 +68,10 @@ const insertCards = (db, canvasId, cards) => {
       canvasId,
       type: typeof card.type === 'string' ? card.type : 'text',
       content: typeof card.content === 'string' ? card.content : '',
+      url: typeof card.url === 'string' ? card.url : null,
+      videoId: typeof card.videoId === 'string' ? card.videoId : null,
+      previewType: typeof card.previewType === 'string' ? card.previewType : null,
+      fileName: typeof card.fileName === 'string' ? card.fileName : null,
       positionX: normalizeNumber(position.x, 0),
       positionY: normalizeNumber(position.y, 0),
       width: normalizeNumber(size.width, 0),
@@ -151,6 +157,7 @@ class CanvasService {
     const cardRows = db.prepare(`
       SELECT
         id, type, content,
+        url, video_id, preview_type, file_name,
         position_x, position_y, width, height,
         collapsed, expanded_width, expanded_height,
         file_type, angle,
@@ -182,6 +189,10 @@ class CanvasService {
         id: card.id,
         type: card.type,
         content: card.content,
+        url: card.url || undefined,
+        videoId: card.video_id || undefined,
+        previewType: card.preview_type || undefined,
+        fileName: card.file_name || undefined,
         position: { x: card.position_x, y: card.position_y },
         size: { width: card.width, height: card.height },
         collapsed: Boolean(card.collapsed),
