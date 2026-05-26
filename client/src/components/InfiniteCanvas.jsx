@@ -233,11 +233,10 @@ const InfiniteCanvas = () => {
             x: newX + draggedCard.size.width / 2,
             y: newY + draggedCard.size.height / 2,
           });
-          if (targetGroupId && targetGroupId !== draggedCard.groupId) {
-            setHoveredGroupId(targetGroupId);
-          } else {
-            setHoveredGroupId(null);
-          }
+          const shouldHighlight = draggedCard.type === 'text'
+            ? Boolean(targetGroupId)
+            : Boolean(targetGroupId && targetGroupId !== draggedCard.groupId);
+          setHoveredGroupId(shouldHighlight ? targetGroupId : null);
         } else {
           setHoveredGroupId(null);
         }
@@ -629,8 +628,8 @@ const InfiniteCanvas = () => {
     return { clip: getRectIntersection(groupRect, childPreviewRect), fullyVisible: false };
   };
 
-  const resolveContainingGroupId = (point) => {
-    const groupCards = Object.values(cards).filter((card) => card.type === 'group');
+  const resolveContainingGroupId = (point, cardsSnapshot = cards) => {
+    const groupCards = Object.values(cardsSnapshot).filter((card) => card.type === 'group');
     if (groupCards.length === 0) return null;
 
     const sortedGroups = [...groupCards].sort((a, b) => {
@@ -647,36 +646,38 @@ const InfiniteCanvas = () => {
     if (cardIds.length === 0) return;
 
     cardIds.forEach((cardId) => {
-      const card = cards[cardId];
+      const { cards: currentCards, updateCard: updateCardState } = useCanvasStore.getState();
+      const card = currentCards[cardId];
       if (!card || card.type === 'group') return;
 
       const center = {
         x: card.position.x + card.size.width / 2,
         y: card.position.y + card.size.height / 2,
       };
-      const nextGroupId = resolveContainingGroupId(center);
+      const nextGroupId = resolveContainingGroupId(center, currentCards);
 
       if (nextGroupId === card.groupId) return;
 
-      if (card.groupId && cards[card.groupId]?.type === 'group') {
-        const oldGroup = cards[card.groupId];
+      if (card.groupId && currentCards[card.groupId]?.type === 'group') {
+        const oldGroup = currentCards[card.groupId];
         const nextChildIds = Array.isArray(oldGroup.childIds)
           ? oldGroup.childIds.filter((id) => id !== cardId)
           : [];
-        updateCard(oldGroup.id, { childIds: nextChildIds }, { skipHistory: true });
+        updateCardState(oldGroup.id, { childIds: nextChildIds }, { skipHistory: true });
         syncGroupBounds(oldGroup.id);
       }
 
       if (nextGroupId) {
-        const newGroup = cards[nextGroupId];
+        const { cards: refreshedCards } = useCanvasStore.getState();
+        const newGroup = refreshedCards[nextGroupId];
         const childIds = Array.isArray(newGroup.childIds) ? newGroup.childIds : [];
         if (!childIds.includes(cardId)) {
-          updateCard(nextGroupId, { childIds: [...childIds, cardId] }, { skipHistory: true });
+          updateCardState(nextGroupId, { childIds: [...childIds, cardId] }, { skipHistory: true });
         }
-        updateCard(cardId, { groupId: nextGroupId }, { skipHistory: true });
+        updateCardState(cardId, { groupId: nextGroupId }, { skipHistory: true });
         syncGroupBounds(nextGroupId);
       } else {
-        updateCard(cardId, { groupId: null }, { skipHistory: true });
+        updateCardState(cardId, { groupId: null }, { skipHistory: true });
       }
     });
   };
@@ -1590,12 +1591,30 @@ const InfiniteCanvas = () => {
       }
 
       updateCardPosition(cardId, dragState.cardX + deltaX, dragState.cardY + deltaY);
+
+      const { cards: currentCards } = useCanvasStore.getState();
+      const currentCard = currentCards[cardId];
+      if (currentCard && currentCard.type !== 'group') {
+        const targetGroupId = resolveContainingGroupId({
+          x: currentCard.position.x + currentCard.size.width / 2,
+          y: currentCard.position.y + currentCard.size.height / 2,
+        }, currentCards);
+        setHoveredGroupId(targetGroupId ? targetGroupId : null);
+      } else {
+        setHoveredGroupId(null);
+      }
     };
 
     const handleMouseUp = () => {
+      const dragState = previewDragStateRef.current;
       previewDragStateRef.current = null;
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+
+      if (dragState?.moved) {
+        updateGroupMembership([cardId]);
+      }
+      setHoveredGroupId(null);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
