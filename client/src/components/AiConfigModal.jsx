@@ -7,6 +7,9 @@ const createEmptyForm = () => ({
   baseUrl: '',
   model: '',
   apiKey: '',
+  systemPrompt: '',
+  temperature: '',
+  maxTokens: '',
   path: '/chat/completions',
   headerName: 'Authorization',
   headerPrefix: 'Bearer ',
@@ -40,6 +43,9 @@ const AiConfigModal = ({
       baseUrl: config.baseUrl || '',
       model: config.model || '',
       apiKey: '',
+      systemPrompt: config.systemPrompt || '',
+      temperature: config.temperature ?? '',
+      maxTokens: config.maxTokens ?? '',
       path: config.path || '/chat/completions',
       headerName: config.headerName || 'Authorization',
       headerPrefix: config.headerPrefix ?? 'Bearer ',
@@ -51,6 +57,19 @@ const AiConfigModal = ({
     const trimmedName = form.name.trim();
     const trimmedBaseUrl = form.baseUrl.trim();
     const trimmedModel = form.model.trim();
+    const trimmedSystemPrompt = form.systemPrompt.trim();
+    const parsedTemperature = form.temperature === '' ? null : Number(form.temperature);
+    const parsedMaxTokens = form.maxTokens === '' ? null : Number(form.maxTokens);
+
+    if (form.temperature !== '' && !Number.isFinite(parsedTemperature)) {
+      setError('Temperature must be a valid number.');
+      return;
+    }
+
+    if (form.maxTokens !== '' && (!Number.isFinite(parsedMaxTokens) || parsedMaxTokens <= 0)) {
+      setError('Max tokens must be a positive number.');
+      return;
+    }
 
     if (!trimmedName || !trimmedBaseUrl || !trimmedModel) {
       setError('Name, Base URL, and Model are required.');
@@ -65,6 +84,9 @@ const AiConfigModal = ({
       baseUrl: trimmedBaseUrl,
       model: trimmedModel,
       apiKey: form.apiKey.trim(),
+      systemPrompt: trimmedSystemPrompt,
+      temperature: parsedTemperature ?? undefined,
+      maxTokens: parsedMaxTokens ?? undefined,
       path: form.path.trim() || '/chat/completions',
       headerName: form.headerName.trim() || 'Authorization',
       headerPrefix: form.headerPrefix ?? 'Bearer ',
@@ -157,6 +179,39 @@ const AiConfigModal = ({
                 onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
               />
               <span className="ai-config-inline-hint">Leaving this blank keeps the key already saved on the server.</span>
+            </label>
+            <label>
+              User instruction (optional)
+              <textarea
+                rows={3}
+                placeholder="Add a system-level instruction for the model"
+                value={form.systemPrompt}
+                onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })}
+              />
+              <span className="ai-config-inline-hint">This instruction is sent as a system message before each request.</span>
+            </label>
+            <label>
+              Temperature (optional)
+              <input
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                placeholder="0.7"
+                value={form.temperature}
+                onChange={(e) => setForm({ ...form, temperature: e.target.value })}
+              />
+            </label>
+            <label>
+              Max tokens (optional)
+              <input
+                type="number"
+                min="1"
+                step="1"
+                placeholder="1024"
+                value={form.maxTokens}
+                onChange={(e) => setForm({ ...form, maxTokens: e.target.value })}
+              />
             </label>
             <label>
               Path (optional)

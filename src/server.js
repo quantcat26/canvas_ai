@@ -21,7 +21,7 @@ const clientRoot = path.join(rootDir, 'client');
 const isDev = process.env.NODE_ENV !== 'production';
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '500mb' }));
 
 app.get('/api', (req, res) => {
   res.send('CanvasAI API Server is running.');

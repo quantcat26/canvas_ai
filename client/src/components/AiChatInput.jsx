@@ -40,6 +40,19 @@ const AiChatInput = ({
     return configs.find((item) => item.id === activeConfigId) || null;
   }, [configs, activeConfigId]);
 
+  const syncTextareaHeight = () => {
+    const textArea = textAreaRef.current;
+    if (!textArea) return;
+
+    if (textArea.value.length === 0) {
+      textArea.style.height = '42px';
+      return;
+    }
+
+    textArea.style.height = 'auto';
+    textArea.style.height = `${textArea.scrollHeight}px`;
+  };
+
   const handleSubmit = () => {
     if (isLoading) return;
 
@@ -70,26 +83,31 @@ const AiChatInput = ({
   };
 
   useEffect(() => {
-    const textArea = textAreaRef.current;
-    if (textArea && isInputFocused) {
-      textArea.style.height = 'auto';
-      textArea.style.height = `${textArea.scrollHeight}px`;
-    } else if (textArea) {
-      textArea.style.height = '42px';
-    }
-  }, [inputText, isInputFocused]);
+    syncTextareaHeight();
+  }, [inputText]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      const isShortcut = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
+      if (!isShortcut) return;
+
+      e.preventDefault();
+
+      const textArea = textAreaRef.current;
+      if (!textArea || isLoading) return;
+
+      setShowServiceSelector(false);
+      textArea.focus();
+      syncTextareaHeight();
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isLoading]);
 
   const handleFocus = () => {
     setIsInputFocused(true);
-    if (textAreaRef.current) {
-      setTimeout(() => {
-        const textArea = textAreaRef.current;
-        if (textArea) {
-          textArea.style.height = 'auto';
-          textArea.style.height = `${textArea.scrollHeight / 1.75}px`;
-        }
-      }, 0);
-    }
+    syncTextareaHeight();
   };
 
   const toggleServiceSelector = () => {
@@ -156,8 +174,8 @@ const AiChatInput = ({
           <textarea
             ref={textAreaRef}
             className="ai-input ai-textarea"
-            placeholder="Ask AI Anything..."
-            value={isInputFocused ? inputText : ''}
+            placeholder="Ask AI Anything... ⌘K"
+            value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={handleFocus}
@@ -188,7 +206,6 @@ const AiChatInput = ({
               )}
             </button>
 
-            {!isInputFocused && <div className="shortcut-hint">⌘K</div>}
           </div>
         </div>
       </div>

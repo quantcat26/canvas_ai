@@ -17,12 +17,29 @@ const normalizeConfig = (value) => {
 
   if (!id || !name || !baseUrl || !model) return null;
 
+  const systemPrompt = typeof value.systemPrompt === 'string' ? value.systemPrompt.trim() : '';
+
+  const parseOptionalNumber = (input, { min, max } = {}) => {
+    if (input === null || input === undefined || input === '') return null;
+    const parsed = Number(input);
+    if (!Number.isFinite(parsed)) return null;
+    if (min !== undefined && parsed < min) return null;
+    if (max !== undefined && parsed > max) return null;
+    return parsed;
+  };
+
+  const temperature = parseOptionalNumber(value.temperature, { min: 0, max: 2 });
+  const maxTokens = parseOptionalNumber(value.maxTokens, { min: 1 });
+
   return {
     id,
     name,
     baseUrl,
     model,
     apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
+    systemPrompt,
+    temperature,
+    maxTokens,
     path: typeof value.path === 'string' && value.path.trim() ? value.path.trim() : '/chat/completions',
     headerName: typeof value.headerName === 'string' && value.headerName.trim() ? value.headerName.trim() : 'Authorization',
     headerPrefix: typeof value.headerPrefix === 'string' ? value.headerPrefix : 'Bearer ',
@@ -73,6 +90,9 @@ class AIController {
       const response = await aiService.askOpenAICompatible({
         message,
         model: config.model,
+        systemPrompt: config.systemPrompt,
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
         provider,
       });
 

@@ -7,12 +7,128 @@ import ZoomControls from './ZoomControls.jsx';
 
 const imageCache = new Map();
 const RESIZE_EDGE_SENSITIVITY = 8;
+const CARD_TEXT_FONT_SIZE = 14;
+const CARD_TEXT_LINE_HEIGHT = 1.5;
+const CARD_CONTENT_PADDING = 20;
+const AUTO_RESIZE_MIN_HEIGHT = 160;
+const AUTO_RESIZE_MAX_HEIGHT = 620;
+const GROUP_PADDING = 20;
+const COLLAPSED_CHILD_PREVIEW_RATIO = 0.3;
+const COLLAPSED_GROUP_DRAG_RATIO = 0.7;
+
+const textMeasureContext = typeof document !== 'undefined'
+  ? document.createElement('canvas').getContext('2d')
+  : null;
+
+const measureTextWidth = (text) => {
+  if (!textMeasureContext) return text.length * CARD_TEXT_FONT_SIZE * 0.6;
+  textMeasureContext.font = `${CARD_TEXT_FONT_SIZE}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+  return textMeasureContext.measureText(text).width;
+};
+
+const splitTextTokens = (text) => {
+  return text.match(/\s+|[A-Za-z0-9]+(?:[._'\-][A-Za-z0-9]+)*|./g) || [];
+};
+
+const splitTokenByWidth = (token, maxWidth) => {
+  const parts = [];
+  let current = '';
+
+  token.split('').forEach((char) => {
+    const next = current + char;
+    if (measureTextWidth(next) > maxWidth && current.length > 0) {
+      parts.push(current);
+      current = char;
+      return;
+    }
+    current = next;
+  });
+
+  if (current.length > 0) {
+    parts.push(current);
+  }
+
+  return parts;
+};
+
+const estimateTextCardHeight = (content, cardWidth) => {
+  const availableWidth = Math.max(40, cardWidth - CARD_CONTENT_PADDING * 2);
+  const lineHeightPx = CARD_TEXT_FONT_SIZE * CARD_TEXT_LINE_HEIGHT;
+  const lines = (content || '').split('\n');
+  let visualLineCount = 0;
+
+  lines.forEach((line) => {
+    if (!line) {
+      visualLineCount += 1;
+      return;
+    }
+
+    const tokens = splitTextTokens(line);
+    let currentWidth = 0;
+    let hasTokenInLine = false;
+
+    tokens.forEach((token, tokenIndex) => {
+      if (!token) return;
+
+      const isWhitespace = /^\s+$/.test(token);
+      if (isWhitespace) {
+        if (!hasTokenInLine) {
+          return;
+        }
+
+        const nextToken = tokens.slice(tokenIndex + 1).find((value) => !/^\s+$/.test(value));
+        if (!nextToken) {
+          return;
+        }
+
+        const spaceWidth = measureTextWidth(token);
+        const nextTokenWidth = measureTextWidth(nextToken);
+        if (currentWidth + spaceWidth + nextTokenWidth > availableWidth) {
+          visualLineCount += 1;
+          currentWidth = 0;
+          hasTokenInLine = false;
+          return;
+        }
+
+        currentWidth += spaceWidth;
+        return;
+      }
+
+      let tokenParts = [token];
+      if (measureTextWidth(token) > availableWidth) {
+        tokenParts = splitTokenByWidth(token, availableWidth);
+      }
+
+      tokenParts.forEach((part) => {
+        const partWidth = measureTextWidth(part);
+        if (currentWidth + partWidth > availableWidth && hasTokenInLine) {
+          visualLineCount += 1;
+          currentWidth = 0;
+          hasTokenInLine = false;
+        }
+
+        currentWidth += partWidth;
+        hasTokenInLine = true;
+      });
+    });
+
+    visualLineCount += hasTokenInLine ? 1 : 1;
+  });
+
+  const verticalPadding = CARD_CONTENT_PADDING * 2 - 8;
+  const estimatedHeight = visualLineCount * lineHeightPx + verticalPadding;
+  return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
+};
+
+const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
+const isExpandedGroupCard = (card) => card?.type === 'group' && !card.collapsed;
 
 const InfiniteCanvas = () => {
   const stageRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [isHoveringConnection, setIsHoveringConnection] = useState(false);
   const [connectionStartCardId, setConnectionStartCardId] = useState(null);
+  const [connectionStartAnchor, setConnectionStartAnchor] = useState(null);
   const [tempConnectionPoints, setTempConnectionPoints] = useState(null);
   const [isDraggingCard, setIsDraggingCard] = useState(false);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -25,7 +141,6 @@ const InfiniteCanvas = () => {
   const [editingCardId, setEditingCardId] = useState(null);
   const [editingText, setEditingText] = useState('');
   const textareaRef = useRef(null);
-  const [lastSelectedCardId, setLastSelectedCardId] = useState(null);
   const [wasCardDragged, setWasCardDragged] = useState(false);
   const dragStartTimeRef = useRef(0);
   const dragThresholdTime = 300;
@@ -35,6 +150,10 @@ const InfiniteCanvas = () => {
   const [cardStartPos, setCardStartPos] = useState({ x: 0, y: 0 });
   const [activeEdge, setActiveEdge] = useState(null);
   const [cursorStyle, setCursorStyle] = useState('default');
+  const [hoveredGroupId, setHoveredGroupId] = useState(null);
+  const dragHistoryRecordedRef = useRef(false);
+  const resizeHistoryRecordedRef = useRef(false);
+  const previewDragStateRef = useRef(null);
 
   const {
     zoom, panX, panY,
@@ -42,9 +161,13 @@ const InfiniteCanvas = () => {
     selectedCardIds, selectedConnectionIds,
     isConnectingMode, setPan, setZoom, updateCard, selectCards,
     clearSelection, selectConnections, updateConnection, addCard, removeCard,
+    recordHistory, undo, redo,
   } = useCanvasStore();
 
-  const selectedCard = selectedCardIds.length === 1 ? cards[selectedCardIds[0]] : null;
+  const rawSelectedCard = selectedCardIds.length === 1 ? cards[selectedCardIds[0]] : null;
+  const selectedCard = rawSelectedCard && rawSelectedCard.groupId && cards[rawSelectedCard.groupId]?.collapsed
+    ? null
+    : rawSelectedCard;
   const collapsedHeight = 120;
   const cardContentPadding = 20;
   const minimapWidth = 180;
@@ -81,13 +204,21 @@ const InfiniteCanvas = () => {
       setCursorCanvasPosition({ x: canvasX, y: canvasY });
 
       if (isConnectingMode && connectionStartCardId && tempConnectionPoints) {
+        const startCard = cards[connectionStartCardId];
+        const startPoint = connectionStartAnchor && startCard
+          ? getPointFromAnchor(startCard, connectionStartAnchor)
+          : tempConnectionPoints.start;
         setTempConnectionPoints({
-          ...tempConnectionPoints,
+          start: startPoint,
           end: { x: canvasX, y: canvasY },
         });
       }
 
       if (isDraggingCard && draggedCardId && e.evt.buttons === 1) {
+        if (!dragHistoryRecordedRef.current) {
+          recordHistory();
+          dragHistoryRecordedRef.current = true;
+        }
         const deltaX = (pointerPos.x - dragStartPos.x) / zoom;
         const deltaY = (pointerPos.y - dragStartPos.y) / zoom;
 
@@ -95,11 +226,29 @@ const InfiniteCanvas = () => {
         const newY = cardStartPos.y + deltaY;
 
         updateCardPosition(draggedCardId, newX, newY);
+
+        const draggedCard = cards[draggedCardId];
+        if (draggedCard && draggedCard.type !== 'group') {
+          const targetGroupId = resolveContainingGroupId({
+            x: newX + draggedCard.size.width / 2,
+            y: newY + draggedCard.size.height / 2,
+          });
+          const shouldHighlight = draggedCard.type === 'text'
+            ? Boolean(targetGroupId)
+            : Boolean(targetGroupId && targetGroupId !== draggedCard.groupId);
+          setHoveredGroupId(shouldHighlight ? targetGroupId : null);
+        } else {
+          setHoveredGroupId(null);
+        }
       } else if (isDraggingCard && e.evt.buttons !== 1) {
         handleDragEnd();
       }
 
       if (isResizingCard && resizingCardId && resizeType) {
+        if (!resizeHistoryRecordedRef.current) {
+          recordHistory();
+          resizeHistoryRecordedRef.current = true;
+        }
         const card = cards[resizingCardId];
         if (!card) return;
 
@@ -130,10 +279,18 @@ const InfiniteCanvas = () => {
           newHeight = Math.max(50, cardInitialSize.height + deltaY);
         }
 
-        updateCard(resizingCardId, {
-          size: { width: newWidth, height: newHeight },
-          position: { x: newX, y: newY },
-        });
+        updateCard(
+          resizingCardId,
+          {
+            size: { width: newWidth, height: newHeight },
+            position: { x: newX, y: newY },
+          },
+          { skipHistory: true },
+        );
+
+        if (card.groupId) {
+          syncGroupBounds(card.groupId);
+        }
       }
 
       if (!isDraggingCard && !isResizingCard && selectedCardIds.length > 0) {
@@ -142,6 +299,9 @@ const InfiniteCanvas = () => {
         for (const cardId of selectedCardIds) {
           const card = cards[cardId];
           if (!card) continue;
+          if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) {
+            continue;
+          }
 
           const relativeX = canvasX - card.position.x;
           const relativeY = canvasY - card.position.y;
@@ -202,36 +362,87 @@ const InfiniteCanvas = () => {
 
     const deltaX = x - card.position.x;
     const deltaY = y - card.position.y;
+    const affectedGroupIds = new Set();
+    const isGroupCard = card.type === 'group';
+    const movedCardIds = new Set([cardId]);
 
-    if (selectedCardIds.length > 1 && selectedCardIds.includes(cardId)) {
+    if (selectedCardIds.length > 1 && selectedCardIds.includes(cardId) && !isGroupCard) {
       selectedCardIds.forEach((selectedId) => {
         const selected = cards[selectedId];
         if (selected) {
-          updateCard(selectedId, {
-            position: {
-              x: selected.position.x + deltaX,
-              y: selected.position.y + deltaY,
+          updateCard(
+            selectedId,
+            {
+              position: {
+                x: selected.position.x + deltaX,
+                y: selected.position.y + deltaY,
+              },
             },
-          });
+            { skipHistory: true },
+          );
+          movedCardIds.add(selectedId);
+          if (selected.groupId) {
+            affectedGroupIds.add(selected.groupId);
+          }
         }
       });
     } else {
-      updateCard(cardId, {
-        position: { x, y },
-      });
+      updateCard(
+        cardId,
+        {
+          position: { x, y },
+        },
+        { skipHistory: true },
+      );
+      if (card.groupId) {
+        affectedGroupIds.add(card.groupId);
+      }
     }
 
+    if (isGroupCard && Array.isArray(card.childIds)) {
+      card.childIds.forEach((childId) => {
+        const child = cards[childId];
+        if (!child) return;
+        updateCard(
+          childId,
+          {
+            position: {
+              x: child.position.x + deltaX,
+              y: child.position.y + deltaY,
+            },
+          },
+          { skipHistory: true },
+        );
+        movedCardIds.add(childId);
+        if (child.groupId) {
+          affectedGroupIds.add(child.groupId);
+        }
+      });
+      affectedGroupIds.add(cardId);
+    }
+
+    affectedGroupIds.forEach((groupId) => syncGroupBounds(groupId));
+
     Object.values(connections).forEach((connection) => {
-      if (connection.startCardId === cardId || connection.endCardId === cardId) {
+      if (movedCardIds.has(connection.startCardId) || movedCardIds.has(connection.endCardId)) {
         const startCard = cards[connection.startCardId];
         const endCard = cards[connection.endCardId];
 
         if (startCard && endCard) {
-          const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
-          updateConnection(connection.id, {
-            startPoint,
-            endPoint,
-          });
+          const { startPoint, endPoint } = calculateConnectionPoints(
+            startCard,
+            endCard,
+            connection.startAnchor,
+            connection.endAnchor,
+          );
+          updateConnection(
+            connection.id,
+            {
+              startPoint,
+              endPoint,
+            },
+            { skipHistory: true },
+          );
         }
       }
     });
@@ -284,6 +495,7 @@ const InfiniteCanvas = () => {
     if (e.evt.button !== 0) return;
 
     e.evt.stopPropagation();
+    e.cancelBubble = true;
 
     const stage = stageRef.current;
     if (!stage) return;
@@ -299,6 +511,22 @@ const InfiniteCanvas = () => {
     const card = cards[cardId];
     if (!card) return;
 
+    if (card.type === 'group' && card.collapsed) {
+      const canvasX = (pointerPos.x - panX) / zoom;
+      const canvasY = (pointerPos.y - panY) / zoom;
+      const relativeY = canvasY - card.position.y;
+      selectCards([cardId]);
+
+      if (relativeY > card.size.height * COLLAPSED_GROUP_DRAG_RATIO) {
+        const restored = card.expandedSize || card.size;
+        updateCard(card.id, { collapsed: false, size: restored });
+        if (card.autoResize !== false) {
+          syncGroupBounds(card.id);
+        }
+        return;
+      }
+    }
+
     dragStartTimeRef.current = Date.now();
 
     setIsDraggingCard(true);
@@ -307,21 +535,22 @@ const InfiniteCanvas = () => {
     setCardStartPos({ x: card.position.x, y: card.position.y });
 
     const isCardAlreadySelected = selectedCardIds.includes(cardId);
+    let nextSelectedIds = selectedCardIds;
 
     if (e.evt.shiftKey) {
       if (!isCardAlreadySelected) {
-        selectCards([...selectedCardIds, cardId]);
-        if (selectedConnectionIds.length > 0) {
-          selectConnections([]);
-        }
+        nextSelectedIds = [...selectedCardIds, cardId];
       }
     } else if (!isCardAlreadySelected) {
-      selectCards([cardId]);
-      if (selectedConnectionIds.length > 0) {
-        selectConnections([]);
-      }
-    } else if (selectedConnectionIds.length > 0) {
+      nextSelectedIds = [cardId];
+    }
+
+    if (selectedConnectionIds.length > 0) {
       selectConnections([]);
+    }
+
+    if (nextSelectedIds.length > 0) {
+      selectCards(nextSelectedIds);
     }
   };
 
@@ -329,6 +558,7 @@ const InfiniteCanvas = () => {
     e.evt.stopPropagation();
     const card = cards[cardId];
     if (!card) return;
+    if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) return;
 
     const stage = stageRef.current;
     if (!stage) return;
@@ -344,7 +574,118 @@ const InfiniteCanvas = () => {
     setCardInitialPosition({ x: card.position.x, y: card.position.y });
   };
 
+  const isPointInsideRect = (point, rect) => {
+    return (
+      point.x >= rect.position.x &&
+      point.x <= rect.position.x + rect.size.width &&
+      point.y >= rect.position.y &&
+      point.y <= rect.position.y + rect.size.height
+    );
+  };
+
+  const isCardFullyInsideRect = (card, rect) => {
+    return (
+      card.position.x >= rect.position.x &&
+      card.position.y >= rect.position.y &&
+      card.position.x + card.size.width <= rect.position.x + rect.size.width &&
+      card.position.y + card.size.height <= rect.position.y + rect.size.height
+    );
+  };
+
+  const getRectIntersection = (rectA, rectB) => {
+    const left = Math.max(rectA.position.x, rectB.position.x);
+    const top = Math.max(rectA.position.y, rectB.position.y);
+    const right = Math.min(rectA.position.x + rectA.size.width, rectB.position.x + rectB.size.width);
+    const bottom = Math.min(rectA.position.y + rectA.size.height, rectB.position.y + rectB.size.height);
+
+    if (right <= left || bottom <= top) {
+      return null;
+    }
+
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    };
+  };
+
+  const getCollapsedChildClip = (card, group) => {
+    if (!group) return null;
+    const groupRect = {
+      position: { x: group.position.x, y: group.position.y },
+      size: { width: group.size.width, height: group.size.height },
+    };
+    if (isCardFullyInsideRect(card, groupRect)) {
+      return { clip: null, fullyVisible: true };
+    }
+    const previewHeight = card.size.height * COLLAPSED_CHILD_PREVIEW_RATIO;
+    const childPreviewRect = {
+      position: { x: card.position.x, y: card.position.y },
+      size: { width: card.size.width, height: previewHeight },
+    };
+
+    return { clip: getRectIntersection(groupRect, childPreviewRect), fullyVisible: false };
+  };
+
+  const resolveContainingGroupId = (point, cardsSnapshot = cards) => {
+    const groupCards = Object.values(cardsSnapshot).filter((card) => card.type === 'group');
+    if (groupCards.length === 0) return null;
+
+    const sortedGroups = [...groupCards].sort((a, b) => {
+      const areaA = a.size.width * a.size.height;
+      const areaB = b.size.width * b.size.height;
+      return areaA - areaB;
+    });
+
+    const match = sortedGroups.find((group) => isPointInsideRect(point, group));
+    return match ? match.id : null;
+  };
+
+  const updateGroupMembership = (cardIds) => {
+    if (cardIds.length === 0) return;
+
+    cardIds.forEach((cardId) => {
+      const { cards: currentCards, updateCard: updateCardState } = useCanvasStore.getState();
+      const card = currentCards[cardId];
+      if (!card || card.type === 'group') return;
+
+      const center = {
+        x: card.position.x + card.size.width / 2,
+        y: card.position.y + card.size.height / 2,
+      };
+      const nextGroupId = resolveContainingGroupId(center, currentCards);
+
+      if (nextGroupId === card.groupId) return;
+
+      if (card.groupId && currentCards[card.groupId]?.type === 'group') {
+        const oldGroup = currentCards[card.groupId];
+        const nextChildIds = Array.isArray(oldGroup.childIds)
+          ? oldGroup.childIds.filter((id) => id !== cardId)
+          : [];
+        updateCardState(oldGroup.id, { childIds: nextChildIds }, { skipHistory: true });
+        syncGroupBounds(oldGroup.id);
+      }
+
+      if (nextGroupId) {
+        const { cards: refreshedCards } = useCanvasStore.getState();
+        const newGroup = refreshedCards[nextGroupId];
+        const childIds = Array.isArray(newGroup.childIds) ? newGroup.childIds : [];
+        if (!childIds.includes(cardId)) {
+          updateCardState(nextGroupId, { childIds: [...childIds, cardId] }, { skipHistory: true });
+        }
+        updateCardState(cardId, { groupId: nextGroupId }, { skipHistory: true });
+        syncGroupBounds(nextGroupId);
+      } else {
+        updateCardState(cardId, { groupId: null }, { skipHistory: true });
+      }
+    });
+  };
+
   const handleDragEnd = () => {
+    let shouldUpdateGroups = false;
+    let movedCardIds = [];
+
     if (isDraggingCard && draggedCardId) {
       const dragDuration = Date.now() - dragStartTimeRef.current;
 
@@ -355,6 +696,7 @@ const InfiniteCanvas = () => {
           const dragDistance = calculateDistance(dragStartPos, currentPosition);
           if (dragDuration > dragThresholdTime || dragDistance > dragThresholdDistance) {
             setWasCardDragged(true);
+            shouldUpdateGroups = true;
           }
         }
       }
@@ -362,13 +704,30 @@ const InfiniteCanvas = () => {
       setTimeout(() => {
         setWasCardDragged(false);
       }, 100);
+
+      if (shouldUpdateGroups) {
+        const draggedCard = cards[draggedCardId];
+        if (draggedCard && draggedCard.type !== 'group') {
+          movedCardIds = selectedCardIds.includes(draggedCardId) && selectedCardIds.length > 1
+            ? selectedCardIds
+            : [draggedCardId];
+          movedCardIds = movedCardIds.filter((id) => cards[id] && cards[id].type !== 'group');
+        }
+      }
     }
 
+    if (shouldUpdateGroups && movedCardIds.length > 0) {
+      updateGroupMembership(movedCardIds);
+    }
+
+    setHoveredGroupId(null);
     setIsDraggingCard(false);
     setDraggedCardId(null);
     setIsResizingCard(false);
     setResizingCardId(null);
     setResizeType(null);
+    dragHistoryRecordedRef.current = false;
+    resizeHistoryRecordedRef.current = false;
   };
 
   const handleCardClick = (cardId, e) => {
@@ -378,20 +737,26 @@ const InfiniteCanvas = () => {
     if (!card) return;
 
     if (isConnectingMode) {
+      const pointerPos = stage?.getPointerPosition();
+      const canvasPointer = pointerPos
+        ? { x: (pointerPos.x - panX) / zoom, y: (pointerPos.y - panY) / zoom }
+        : null;
+
       if (!connectionStartCardId) {
+        const targetPoint = canvasPointer || getCardCenter(card);
+        const startEdgePoint = getEdgeIntersection(card, targetPoint);
+        const startAnchor = getAnchorFromPoint(card, startEdgePoint);
+        const startPoint = getPointFromAnchor(card, startAnchor);
+
         setConnectionStartCardId(cardId);
+        setConnectionStartAnchor(startAnchor);
         setTempConnectionPoints({
-          start: {
-            x: card.position.x + card.size.width / 2,
-            y: card.position.y + card.size.height / 2,
-          },
-          end: {
-            x: card.position.x + card.size.width / 2,
-            y: card.position.y + card.size.height / 2,
-          },
+          start: startPoint,
+          end: startPoint,
         });
       } else if (cardId === connectionStartCardId) {
         setConnectionStartCardId(null);
+        setConnectionStartAnchor(null);
         setTempConnectionPoints(null);
       } else if (cardId !== connectionStartCardId) {
         const startCard = cards[connectionStartCardId];
@@ -399,17 +764,31 @@ const InfiniteCanvas = () => {
         const { addConnection } = useCanvasStore.getState();
 
         if (startCard && endCard) {
-          const { startPoint, endPoint } = calculateConnectionPoints(startCard, endCard);
+          const targetPoint = canvasPointer || getCardCenter(endCard);
+          const endEdgePoint = getEdgeIntersection(endCard, targetPoint);
+          const endAnchor = getAnchorFromPoint(endCard, endEdgePoint);
+          const startAnchor = connectionStartAnchor
+            || getAnchorFromPoint(startCard, getEdgeIntersection(startCard, getCardCenter(endCard)));
+
+          const { startPoint, endPoint } = calculateConnectionPoints(
+            startCard,
+            endCard,
+            startAnchor,
+            endAnchor,
+          );
 
           addConnection({
             startCardId: connectionStartCardId,
             endCardId: cardId,
             startPoint,
             endPoint,
+            startAnchor,
+            endAnchor,
           });
         }
 
         setConnectionStartCardId(null);
+        setConnectionStartAnchor(null);
         setTempConnectionPoints(null);
       }
       return;
@@ -431,24 +810,32 @@ const InfiniteCanvas = () => {
       return;
     }
 
-    const isSecondClickOnSameCard = cardId === lastSelectedCardId;
-
-    if (isSecondClickOnSameCard && card.type === 'text') {
-      setEditingCardId(cardId);
-      if (card.content === 'Click to edit text content') {
-        setEditingText('');
-      } else {
-        setEditingText(card.content || '');
+    if (card.type === 'text') {
+      const isShiftPressed = 'shiftKey' in e.evt && Boolean(e.evt.shiftKey);
+      if (!isShiftPressed) {
+        selectCards([cardId]);
       }
     }
+  };
 
-    setLastSelectedCardId(cardId);
+  const handleCardDoubleClick = (cardId, e) => {
+    e.evt.stopPropagation();
+
+    const card = cards[cardId];
+    if (!card || card.type !== 'text') return;
+
+    selectCards([cardId]);
+    setEditingCardId(cardId);
+    if (card.content === 'Click to edit text content') {
+      setEditingText('');
+    } else {
+      setEditingText(card.content || '');
+    }
   };
 
   const handleStageClick = (e) => {
     if (e.target === e.target.getStage() || e.target.name() === 'background-rect') {
       clearSelection();
-      setLastSelectedCardId(null);
     }
   };
 
@@ -475,16 +862,42 @@ const InfiniteCanvas = () => {
     const handleKeyDown = (e) => {
       if (editingCardId) return;
 
+      const isModifierPressed = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      const isUndoShortcut = isModifierPressed && key === 'z' && !e.shiftKey;
+      const isRedoShortcut = isModifierPressed && (key === 'y' || (key === 'z' && e.shiftKey));
+      const target = e.target;
+      const isTypingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      if ((isUndoShortcut || isRedoShortcut) && isTypingTarget) {
+        return;
+      }
+
+      if (isUndoShortcut) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if (isRedoShortcut) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
       if ((e.key === 'Delete' || e.key === 'Backspace') &&
           (selectedCardIds.length > 0 || selectedConnectionIds.length > 0)) {
+        const { recordHistory } = useCanvasStore.getState();
+        recordHistory();
+
         selectedCardIds.forEach((id) => {
           const { removeCard } = useCanvasStore.getState();
-          removeCard(id);
+          removeCard(id, { skipHistory: true });
         });
 
         selectedConnectionIds.forEach((id) => {
           const { removeConnection } = useCanvasStore.getState();
-          removeConnection(id);
+          removeConnection(id, { skipHistory: true });
         });
 
         clearSelection();
@@ -495,7 +908,7 @@ const InfiniteCanvas = () => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [selectedCardIds, selectedConnectionIds, editingCardId, clearSelection]);
+  }, [selectedCardIds, selectedConnectionIds, editingCardId, clearSelection, undo, redo]);
 
   const loadImage = (src) => {
     if (imageCache.has(src)) {
@@ -513,6 +926,10 @@ const InfiniteCanvas = () => {
 
     if (fileType.startsWith('application/pdf')) {
       return '📕';
+    } else if (fileType.startsWith('video/')) {
+      return '🎬';
+    } else if (fileType.startsWith('text/')) {
+      return '📄';
     } else if (fileType.startsWith('application/msword') ||
                fileType.includes('wordprocessingml')) {
       return '📘';
@@ -532,6 +949,10 @@ const InfiniteCanvas = () => {
 
     if (fileType.startsWith('application/pdf')) {
       return 'PDF file';
+    } else if (fileType.startsWith('video/')) {
+      return 'Video file';
+    } else if (fileType.startsWith('text/')) {
+      return 'Text file';
     } else if (fileType.startsWith('application/msword') ||
                fileType.includes('wordprocessingml')) {
       return 'Word file';
@@ -547,45 +968,227 @@ const InfiniteCanvas = () => {
     return parts.length > 1 ? `${parts[1].toUpperCase()} file` : 'File';
   };
 
-  const calculateConnectionPoints = (startCard, endCard) => {
-    const startCenter = {
-      x: startCard.position.x + startCard.size.width / 2,
-      y: startCard.position.y + startCard.size.height / 2,
-    };
-    const endCenter = {
-      x: endCard.position.x + endCard.size.width / 2,
-      y: endCard.position.y + endCard.size.height / 2,
-    };
-
-    const startEdges = [
-      { x: startCard.position.x + startCard.size.width, y: startCenter.y },
-      { x: startCenter.x, y: startCard.position.y },
-      { x: startCard.position.x, y: startCenter.y },
-      { x: startCenter.x, y: startCard.position.y + startCard.size.height },
-    ];
-    const endEdges = [
-      { x: endCard.position.x + endCard.size.width, y: endCenter.y },
-      { x: endCenter.x, y: endCard.position.y },
-      { x: endCard.position.x, y: endCenter.y },
-      { x: endCenter.x, y: endCard.position.y + endCard.size.height },
-    ];
-
-    let minDistance = Infinity;
-    let bestStartPoint = startCenter;
-    let bestEndPoint = endCenter;
-
-    for (const startEdge of startEdges) {
-      for (const endEdge of endEdges) {
-        const distance = calculateDistance(startEdge, endEdge);
-        if (distance < minDistance) {
-          minDistance = distance;
-          bestStartPoint = startEdge;
-          bestEndPoint = endEdge;
-        }
-      }
+  const renderCardPreview = (card) => {
+    if (card.type === 'link') {
+      return (
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={card.url}
+              title={getPreviewTitle(card)}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            />
+          </div>
+        </div>
+      );
     }
 
-    return { startPoint: bestStartPoint, endPoint: bestEndPoint };
+    if (card.type === 'youtube') {
+      const embedUrl = card.videoId
+        ? `https://www.youtube.com/embed/${card.videoId}?rel=0`
+        : '';
+      return (
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={embedUrl}
+              title={getPreviewTitle(card)}
+              loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (card.previewType === 'pdf') {
+      return (
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={card.content}
+              title={card.fileName || 'PDF preview'}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (card.previewType === 'video') {
+      return (
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <video
+              className={styles.previewFrame}
+              src={card.content}
+              playsInline
+              controls
+              preload="metadata"
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (card.previewType === 'text') {
+      const previewText = (card.content || '').slice(0, 4000);
+      return (
+        <pre className={styles.previewText}>
+          {previewText || 'Text preview is empty.'}
+        </pre>
+      );
+    }
+
+    return null;
+  };
+
+  const getCardCenter = (card) => ({
+    x: card.position.x + card.size.width / 2,
+    y: card.position.y + card.size.height / 2,
+  });
+
+  const getEdgeIntersection = (card, targetPoint) => {
+    const center = getCardCenter(card);
+    const dx = targetPoint.x - center.x;
+    const dy = targetPoint.y - center.y;
+
+    if (dx === 0 && dy === 0) {
+      return center;
+    }
+
+    const halfWidth = card.size.width / 2;
+    const halfHeight = card.size.height / 2;
+    const scaleX = Math.abs(dx) > 0 ? halfWidth / Math.abs(dx) : Infinity;
+    const scaleY = Math.abs(dy) > 0 ? halfHeight / Math.abs(dy) : Infinity;
+    const scale = Math.min(scaleX, scaleY);
+
+    return {
+      x: center.x + dx * scale,
+      y: center.y + dy * scale,
+    };
+  };
+
+  const getAnchorFromPoint = (card, point) => {
+    const left = card.position.x;
+    const right = card.position.x + card.size.width;
+    const top = card.position.y;
+    const bottom = card.position.y + card.size.height;
+
+    const distances = [
+      { edge: 'left', value: Math.abs(point.x - left) },
+      { edge: 'right', value: Math.abs(point.x - right) },
+      { edge: 'top', value: Math.abs(point.y - top) },
+      { edge: 'bottom', value: Math.abs(point.y - bottom) },
+    ];
+
+    distances.sort((a, b) => a.value - b.value);
+    const edge = distances[0].edge;
+
+    if (edge === 'left' || edge === 'right') {
+      const ratio = (point.y - top) / card.size.height;
+      return { edge, ratio: Math.min(1, Math.max(0, ratio)) };
+    }
+
+    const ratio = (point.x - left) / card.size.width;
+    return { edge, ratio: Math.min(1, Math.max(0, ratio)) };
+  };
+
+  const getPointFromAnchor = (card, anchor) => {
+    const left = card.position.x;
+    const right = card.position.x + card.size.width;
+    const top = card.position.y;
+    const bottom = card.position.y + card.size.height;
+
+    switch (anchor.edge) {
+      case 'left':
+        return { x: left, y: top + anchor.ratio * card.size.height };
+      case 'right':
+        return { x: right, y: top + anchor.ratio * card.size.height };
+      case 'top':
+        return { x: left + anchor.ratio * card.size.width, y: top };
+      case 'bottom':
+      default:
+        return { x: left + anchor.ratio * card.size.width, y: bottom };
+    }
+  };
+
+  const calculateConnectionPoints = (startCard, endCard, startAnchor, endAnchor) => {
+    const startTarget = endAnchor ? getPointFromAnchor(endCard, endAnchor) : getCardCenter(endCard);
+    const endTarget = startAnchor ? getPointFromAnchor(startCard, startAnchor) : getCardCenter(startCard);
+
+    const startPoint = startAnchor
+      ? getPointFromAnchor(startCard, startAnchor)
+      : getEdgeIntersection(startCard, startTarget);
+    const endPoint = endAnchor
+      ? getPointFromAnchor(endCard, endAnchor)
+      : getEdgeIntersection(endCard, endTarget);
+
+    return { startPoint, endPoint };
+  };
+
+  const getGroupBounds = (groupId) => {
+    const { cards: currentCards } = useCanvasStore.getState();
+    const group = currentCards[groupId];
+    if (!group || group.type !== 'group' || !Array.isArray(group.childIds) || group.childIds.length === 0) {
+      return null;
+    }
+
+    const childCards = group.childIds.map((id) => currentCards[id]).filter(Boolean);
+    if (childCards.length === 0) return null;
+
+    const minX = Math.min(...childCards.map((card) => card.position.x));
+    const minY = Math.min(...childCards.map((card) => card.position.y));
+    const maxX = Math.max(...childCards.map((card) => card.position.x + card.size.width));
+    const maxY = Math.max(...childCards.map((card) => card.position.y + card.size.height));
+
+    return {
+      position: { x: minX - GROUP_PADDING, y: minY - GROUP_PADDING },
+      size: {
+        width: maxX - minX + GROUP_PADDING * 2,
+        height: maxY - minY + GROUP_PADDING * 2,
+      },
+    };
+  };
+
+  const syncGroupBounds = (groupId) => {
+    const { cards: currentCards, updateCard: updateGroupCard } = useCanvasStore.getState();
+    const group = currentCards[groupId];
+    if (!group || group.type !== 'group' || group.autoResize === false || group.collapsed) {
+      return;
+    }
+    const bounds = getGroupBounds(groupId);
+    if (!bounds) return;
+    updateGroupCard(groupId, bounds, { skipHistory: true });
   };
 
   const handleTextEditingComplete = () => {
@@ -717,6 +1320,28 @@ const InfiniteCanvas = () => {
   const handleToggleCollapse = () => {
     if (!selectedCard) return;
 
+    if (selectedCard.type === 'group') {
+      if (!selectedCard.collapsed) {
+        updateCard(selectedCard.id, {
+          collapsed: true,
+          expandedSize: selectedCard.size,
+          size: { width: selectedCard.size.width, height: collapsedHeight },
+        });
+        return;
+      }
+
+      const restored = selectedCard.expandedSize || selectedCard.size;
+      updateCard(selectedCard.id, {
+        collapsed: false,
+        size: restored,
+      });
+
+      if (selectedCard.autoResize !== false) {
+        syncGroupBounds(selectedCard.id);
+      }
+      return;
+    }
+
     if (!selectedCard.collapsed) {
       updateCard(selectedCard.id, {
         collapsed: true,
@@ -733,13 +1358,20 @@ const InfiniteCanvas = () => {
     });
   };
 
-  const handleAutoResize = () => {
-    if (!selectedCard || selectedCard.type !== 'text') return;
-    const content = selectedCard.content || '';
-    const lines = content.split('\n').length || 1;
-    const lineHeight = 22;
-    const padding = 70;
-    const nextHeight = Math.min(620, Math.max(160, lines * lineHeight + padding));
+  const handleResize = () => {
+    if (!selectedCard) return;
+
+    if (selectedCard.type === 'group') {
+      const nextAutoResize = selectedCard.autoResize === false;
+      updateCard(selectedCard.id, { autoResize: nextAutoResize });
+      if (nextAutoResize) {
+        syncGroupBounds(selectedCard.id);
+      }
+      return;
+    }
+
+    if (selectedCard.type !== 'text') return;
+    const nextHeight = estimateTextCardHeight(selectedCard.content || '', selectedCard.size.width);
 
     updateCard(selectedCard.id, {
       collapsed: false,
@@ -758,6 +1390,53 @@ const InfiniteCanvas = () => {
 
   const handleDuplicateCard = () => {
     if (!selectedCard) return;
+    if (selectedCard.type === 'group') {
+      const offset = 30;
+      const group = selectedCard;
+      const { id: _id, childIds: _childIds, ...groupRest } = group;
+      const originalChildIds = Array.isArray(group.childIds) ? group.childIds : [];
+
+      recordHistory();
+
+      const newGroupId = addCard(
+        {
+          ...groupRest,
+          position: {
+            x: group.position.x + offset,
+            y: group.position.y + offset,
+          },
+          childIds: [],
+        },
+        { skipHistory: true },
+      );
+
+      const newChildIds = [];
+      originalChildIds.forEach((childId) => {
+        const child = cards[childId];
+        if (!child) return;
+        const { id: _childId, ...childRest } = child;
+        const newChildId = addCard(
+          {
+            ...childRest,
+            position: {
+              x: child.position.x + offset,
+              y: child.position.y + offset,
+            },
+            groupId: newGroupId,
+          },
+          { skipHistory: true },
+        );
+        newChildIds.push(newChildId);
+      });
+
+      updateCard(newGroupId, { childIds: newChildIds }, { skipHistory: true });
+      if (group.autoResize !== false && !group.collapsed) {
+        syncGroupBounds(newGroupId);
+      }
+      selectCards([newGroupId]);
+      return;
+    }
+
     const { id, expandedSize, collapsed, ...rest } = selectedCard;
     addCard({
       ...rest,
@@ -768,10 +1447,178 @@ const InfiniteCanvas = () => {
     });
   };
 
+  const handleRenameGroup = () => {
+    if (!selectedCard || selectedCard.type !== 'group') return;
+    const nextName = window.prompt('Enter group name', selectedCard.title || 'Group');
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    updateCard(selectedCard.id, { title: trimmed || 'Group' });
+  };
+
+  const handleUngroupCard = () => {
+    if (!selectedCard || !selectedCard.groupId) return;
+    const group = cards[selectedCard.groupId];
+    recordHistory();
+
+    updateCard(selectedCard.id, { groupId: null }, { skipHistory: true });
+
+    if (group?.type === 'group' && Array.isArray(group.childIds)) {
+      const nextChildIds = group.childIds.filter((id) => id !== selectedCard.id);
+      updateCard(group.id, { childIds: nextChildIds }, { skipHistory: true });
+      if (nextChildIds.length > 0) {
+        syncGroupBounds(group.id);
+      }
+    }
+  };
+
   const handleDeleteCard = () => {
     if (!selectedCard) return;
+    if (selectedCard.type === 'group') {
+      const childIds = Array.isArray(selectedCard.childIds) ? selectedCard.childIds : [];
+      recordHistory();
+      childIds.forEach((childId) => {
+        removeCard(childId, { skipHistory: true });
+      });
+      removeCard(selectedCard.id, { skipHistory: true });
+      clearSelection();
+      return;
+    }
     removeCard(selectedCard.id);
     clearSelection();
+  };
+
+  const orderedCards = useMemo(() => {
+    const list = Object.values(cards).map((card, index) => ({ card, index }));
+    list.sort((a, b) => {
+      const aIsGroup = isExpandedGroupCard(a.card);
+      const bIsGroup = isExpandedGroupCard(b.card);
+      if (aIsGroup !== bIsGroup) return aIsGroup ? -1 : 1;
+
+      const zDiff = getCardZIndex(a.card) - getCardZIndex(b.card);
+      return zDiff !== 0 ? zDiff : a.index - b.index;
+    });
+    return list.map(({ card }) => card);
+  }, [cards]);
+
+  const previewCards = useMemo(() => {
+    return orderedCards.filter((card) => {
+      if (card.type === 'link') return true;
+      if (card.type === 'youtube') return true;
+      return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
+    });
+  }, [orderedCards]);
+
+  const isInteractivePreview = (card) => (
+    card.type === 'link' || card.type === 'youtube' || ['video', 'pdf'].includes(card.previewType)
+  );
+
+  const getPreviewTitle = (card) => {
+    if (card.type === 'link') {
+      if (!card.url) return 'Link preview';
+
+      try {
+        return new URL(card.url).hostname || card.url;
+      } catch {
+        return card.url;
+      }
+    }
+
+    if (card.type === 'youtube') {
+      return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+    }
+
+    if (card.previewType === 'video') {
+      return card.fileName || 'Video preview';
+    }
+
+    if (card.previewType === 'pdf') {
+      return card.fileName || 'PDF preview';
+    }
+
+    return 'Preview';
+  };
+
+  const getPreviewStyle = (card) => {
+    const inset = isInteractivePreview(card)
+      ? Math.min(12, Math.max(6, 8 * zoom))
+      : 0;
+    const width = Math.max(0, card.size.width * zoom - inset * 2);
+    const height = Math.max(0, card.size.height * zoom - inset * 2);
+
+    return {
+      left: `${card.position.x * zoom + panX + inset}px`,
+      top: `${card.position.y * zoom + panY + inset}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+    };
+  };
+
+  const handlePreviewDragStart = (cardId, e) => {
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const card = cards[cardId];
+    if (!card) return;
+
+    previewDragStateRef.current = {
+      cardId,
+      startX: e.clientX,
+      startY: e.clientY,
+      cardX: card.position.x,
+      cardY: card.position.y,
+      moved: false,
+    };
+
+    selectCards([cardId]);
+
+    const handleMouseMove = (moveEvent) => {
+      const dragState = previewDragStateRef.current;
+      if (!dragState || dragState.cardId !== cardId) return;
+
+      const deltaX = (moveEvent.clientX - dragState.startX) / zoom;
+      const deltaY = (moveEvent.clientY - dragState.startY) / zoom;
+      const distance = Math.sqrt((moveEvent.clientX - dragState.startX) ** 2 + (moveEvent.clientY - dragState.startY) ** 2);
+
+      if (distance < 3) {
+        return;
+      }
+
+      if (!dragState.moved) {
+        recordHistory();
+        dragState.moved = true;
+      }
+
+      updateCardPosition(cardId, dragState.cardX + deltaX, dragState.cardY + deltaY);
+
+      const { cards: currentCards } = useCanvasStore.getState();
+      const currentCard = currentCards[cardId];
+      if (currentCard && currentCard.type !== 'group') {
+        const targetGroupId = resolveContainingGroupId({
+          x: currentCard.position.x + currentCard.size.width / 2,
+          y: currentCard.position.y + currentCard.size.height / 2,
+        }, currentCards);
+        setHoveredGroupId(targetGroupId ? targetGroupId : null);
+      } else {
+        setHoveredGroupId(null);
+      }
+    };
+
+    const handleMouseUp = () => {
+      const dragState = previewDragStateRef.current;
+      previewDragStateRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+
+      if (dragState?.moved) {
+        updateGroupMembership([cardId]);
+      }
+      setHoveredGroupId(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
 
   return (
@@ -852,7 +1699,20 @@ const InfiniteCanvas = () => {
             />
           ))}
 
-          {Object.values(cards).map((card) => (
+          {orderedCards.map((card) => {
+            const isGroup = card.type === 'group';
+            const parentGroup = !isGroup && card.groupId ? cards[card.groupId] : null;
+            const isInCollapsedGroup = parentGroup?.type === 'group' && parentGroup.collapsed;
+            const collapsedInfo = isInCollapsedGroup
+              ? getCollapsedChildClip(card, parentGroup)
+              : null;
+            const collapsedClip = collapsedInfo?.clip ?? null;
+            if (isInCollapsedGroup && !collapsedInfo?.fullyVisible && !collapsedClip) {
+              return null;
+            }
+            const isGroupHighlighted = isGroup && hoveredGroupId === card.id;
+            const isCardSelected = selectedCardIds.includes(card.id);
+            return (
             <Group
               key={card.id}
               x={card.position.x}
@@ -862,22 +1722,42 @@ const InfiniteCanvas = () => {
               draggable={false}
               onMouseDown={(e) => handleCardMouseDown(card.id, e)}
               onClick={(e) => handleCardClick(card.id, e)}
+              onDblClick={(e) => handleCardDoubleClick(card.id, e)}
               onTap={() => selectCards([card.id])}
               rotation={card.angle || 0}
+              listening={!isInCollapsedGroup}
+              clipX={collapsedClip ? collapsedClip.x - card.position.x : undefined}
+              clipY={collapsedClip ? collapsedClip.y - card.position.y : undefined}
+              clipWidth={collapsedClip ? collapsedClip.width : undefined}
+              clipHeight={collapsedClip ? collapsedClip.height : undefined}
             >
               <Rect
                 width={card.size.width}
                 height={card.size.height}
-                fill="white"
-                stroke={selectedCardIds.includes(card.id) ? '#4285f4' : '#ddd'}
-                strokeWidth={selectedCardIds.includes(card.id) ? 2 : 1}
-                shadowColor="rgba(0,0,0,0.2)"
-                shadowBlur={5}
-                shadowOffset={{ x: 0, y: 2 }}
+                fill={isGroup
+                  ? (isGroupHighlighted ? 'rgba(34, 197, 94, 0.12)' : 'rgba(47, 107, 255, 0.06)')
+                  : 'white'}
+                stroke={isGroupHighlighted ? '#22c55e' : isCardSelected ? '#4285f4' : '#ddd'}
+                strokeWidth={isGroup ? (isGroupHighlighted ? 2.5 : 1) : isCardSelected ? 2 : 1}
+                shadowColor={isGroupHighlighted ? 'rgba(34, 197, 94, 0.45)' : isGroup ? 'transparent' : 'rgba(0,0,0,0.2)'}
+                shadowBlur={isGroup ? (isGroupHighlighted ? 12 : 0) : 5}
+                shadowOffset={isGroup ? { x: 0, y: 0 } : { x: 0, y: 2 }}
+                dash={isGroup ? [6, 4] : undefined}
                 cornerRadius={5}
               />
 
-              {card.type === 'text' ? (
+              {card.type === 'group' ? (
+                <Text
+                  x={12}
+                  y={10}
+                  width={card.size.width - 24}
+                  height={20}
+                  text={card.title || 'Group'}
+                  fontSize={13}
+                  fill={isGroupHighlighted ? '#14532d' : '#64748b'}
+                  listening={false}
+                />
+              ) : card.type === 'text' ? (
                 <MarkdownCard
                   x={cardContentPadding}
                   y={cardContentPadding}
@@ -913,7 +1793,7 @@ const InfiniteCanvas = () => {
                     y={55}
                     width={card.size.width}
                     height={30}
-                    text={getFileTypeName(card.fileType)}
+                    text={card.fileName || getFileTypeName(card.fileType)}
                     fontSize={16}
                     fill="#333"
                     align="center"
@@ -931,11 +1811,77 @@ const InfiniteCanvas = () => {
                     listening={false}
                   />
                 </Group>
+              ) : card.type === 'link' ? (
+                <Group>
+                  <Text
+                    x={0}
+                    y={18}
+                    width={card.size.width}
+                    height={30}
+                    text="🌐"
+                    fontSize={22}
+                    fill="#1f2a37"
+                    align="center"
+                    listening={false}
+                  />
+                  <Text
+                    x={16}
+                    y={50}
+                    width={card.size.width - 32}
+                    height={card.size.height - 60}
+                    text={card.url || 'Link preview'}
+                    fontSize={13}
+                    fill="#475569"
+                    align="center"
+                    listening={false}
+                  />
+                </Group>
+              ) : card.type === 'youtube' ? (
+                <Group>
+                  <Text
+                    x={0}
+                    y={18}
+                    width={card.size.width}
+                    height={30}
+                    text="▶️"
+                    fontSize={22}
+                    fill="#1f2a37"
+                    align="center"
+                    listening={false}
+                  />
+                  <Text
+                    x={16}
+                    y={50}
+                    width={card.size.width - 32}
+                    height={card.size.height - 60}
+                    text={card.videoId ? `YouTube: ${card.videoId}` : 'YouTube preview'}
+                    fontSize={13}
+                    fill="#475569"
+                    align="center"
+                    listening={false}
+                  />
+                </Group>
               ) : null}
             </Group>
-          ))}
+          );
+          })}
         </Layer>
       </Stage>
+
+      {previewCards.map((card) => (
+        <div
+          key={`preview-${card.id}`}
+          className={styles.cardPreviewOverlay}
+          style={{
+            ...getPreviewStyle(card),
+            pointerEvents: (isDraggingCard || isResizingCard)
+              ? 'none'
+              : (isInteractivePreview(card) ? 'auto' : 'none'),
+          }}
+        >
+          {renderCardPreview(card)}
+        </div>
+      ))}
 
       {selectedCard && !editingCardId && (
         <div
@@ -948,15 +1894,29 @@ const InfiniteCanvas = () => {
           <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
             {selectedCard.collapsed ? 'Expand' : 'Collapse'}
           </button>
-          <button className={styles.cardOptionButton} onClick={handleAutoResize}>
-            Auto resize
+          <button className={styles.cardOptionButton} onClick={handleResize}>
+            {selectedCard.type === 'group'
+              ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
+              : 'Resize'}
           </button>
-          <button className={styles.cardOptionButton} onClick={handleCopyCard}>
-            Copy
-          </button>
+          {selectedCard.type !== 'group' && (
+            <button className={styles.cardOptionButton} onClick={handleCopyCard}>
+              Copy
+            </button>
+          )}
           <button className={styles.cardOptionButton} onClick={handleDuplicateCard}>
             Duplicate
           </button>
+          {selectedCard.type === 'group' && (
+            <button className={styles.cardOptionButton} onClick={handleRenameGroup}>
+              Rename
+            </button>
+          )}
+          {selectedCard.groupId && (
+            <button className={styles.cardOptionButton} onClick={handleUngroupCard}>
+              Ungroup
+            </button>
+          )}
           <button className={`${styles.cardOptionButton} ${styles.dangerButton}`} onClick={handleDeleteCard}>
             Delete
           </button>
