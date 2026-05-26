@@ -1019,11 +1019,21 @@ const InfiniteCanvas = () => {
 
     if (card.previewType === 'pdf') {
       return (
-        <iframe
-          className={styles.previewFrame}
-          src={card.content}
-          title={card.fileName || 'PDF preview'}
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={card.content}
+              title={card.fileName || 'PDF preview'}
+            />
+          </div>
+        </div>
       );
     }
 
@@ -1498,7 +1508,7 @@ const InfiniteCanvas = () => {
   }, [orderedCards]);
 
   const isInteractivePreview = (card) => (
-    card.type === 'link' || card.type === 'youtube' || card.previewType === 'video'
+    card.type === 'link' || card.type === 'youtube' || ['video', 'pdf'].includes(card.previewType)
   );
 
   const getPreviewTitle = (card) => {
@@ -1518,6 +1528,10 @@ const InfiniteCanvas = () => {
 
     if (card.previewType === 'video') {
       return card.fileName || 'Video preview';
+    }
+
+    if (card.previewType === 'pdf') {
+      return card.fileName || 'PDF preview';
     }
 
     return 'Preview';
