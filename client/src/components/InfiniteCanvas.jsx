@@ -120,6 +120,9 @@ const estimateTextCardHeight = (content, cardWidth) => {
   return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
 };
 
+const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
+const isExpandedGroupCard = (card) => card?.type === 'group' && !card.collapsed;
+
 const InfiniteCanvas = () => {
   const stageRef = useRef(null);
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -150,6 +153,7 @@ const InfiniteCanvas = () => {
   const [hoveredGroupId, setHoveredGroupId] = useState(null);
   const dragHistoryRecordedRef = useRef(false);
   const resizeHistoryRecordedRef = useRef(false);
+  const previewDragStateRef = useRef(null);
 
   const {
     zoom, panX, panY,
@@ -532,21 +536,22 @@ const InfiniteCanvas = () => {
     setCardStartPos({ x: card.position.x, y: card.position.y });
 
     const isCardAlreadySelected = selectedCardIds.includes(cardId);
+    let nextSelectedIds = selectedCardIds;
 
     if (e.evt.shiftKey) {
       if (!isCardAlreadySelected) {
-        selectCards([...selectedCardIds, cardId]);
-        if (selectedConnectionIds.length > 0) {
-          selectConnections([]);
-        }
+        nextSelectedIds = [...selectedCardIds, cardId];
       }
     } else if (!isCardAlreadySelected) {
-      selectCards([cardId]);
-      if (selectedConnectionIds.length > 0) {
-        selectConnections([]);
-      }
-    } else if (selectedConnectionIds.length > 0) {
+      nextSelectedIds = [cardId];
+    }
+
+    if (selectedConnectionIds.length > 0) {
       selectConnections([]);
+    }
+
+    if (nextSelectedIds.length > 0) {
+      selectCards(nextSelectedIds);
     }
   };
 
@@ -965,14 +970,24 @@ const InfiniteCanvas = () => {
   const renderCardPreview = (card) => {
     if (card.type === 'link') {
       return (
-        <iframe
-          className={styles.previewFrame}
-          src={card.url}
-          title={card.url || 'Link preview'}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={card.url}
+              title={getPreviewTitle(card)}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            />
+          </div>
+        </div>
       );
     }
 
@@ -981,14 +996,24 @@ const InfiniteCanvas = () => {
         ? `https://www.youtube.com/embed/${card.videoId}?rel=0`
         : '';
       return (
-        <iframe
-          className={styles.previewFrame}
-          src={embedUrl}
-          title="YouTube preview"
-          loading="lazy"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <iframe
+              className={styles.previewFrame}
+              src={embedUrl}
+              title={getPreviewTitle(card)}
+              loading="lazy"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
       );
     }
 
@@ -1004,15 +1029,23 @@ const InfiniteCanvas = () => {
 
     if (card.previewType === 'video') {
       return (
-        <video
-          className={styles.previewFrame}
-          src={card.content}
-          muted
-          loop
-          playsInline
-          autoPlay
-          preload="metadata"
-        />
+        <div className={styles.previewCardShell}>
+          <div
+            className={styles.previewHeader}
+            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
+          >
+            {getPreviewTitle(card)}
+          </div>
+          <div className={styles.previewBody}>
+            <video
+              className={styles.previewFrame}
+              src={card.content}
+              playsInline
+              controls
+              preload="metadata"
+            />
+          </div>
+        </div>
       );
     }
 
@@ -1443,29 +1476,117 @@ const InfiniteCanvas = () => {
     clearSelection();
   };
 
+  const orderedCards = useMemo(() => {
+    const list = Object.values(cards).map((card, index) => ({ card, index }));
+    list.sort((a, b) => {
+      const aIsGroup = isExpandedGroupCard(a.card);
+      const bIsGroup = isExpandedGroupCard(b.card);
+      if (aIsGroup !== bIsGroup) return aIsGroup ? -1 : 1;
+
+      const zDiff = getCardZIndex(a.card) - getCardZIndex(b.card);
+      return zDiff !== 0 ? zDiff : a.index - b.index;
+    });
+    return list.map(({ card }) => card);
+  }, [cards]);
+
   const previewCards = useMemo(() => {
-    return Object.values(cards).filter((card) => {
+    return orderedCards.filter((card) => {
       if (card.type === 'link') return true;
       if (card.type === 'youtube') return true;
       return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
     });
-  }, [cards]);
+  }, [orderedCards]);
 
-  const orderedCards = useMemo(() => {
-    const list = Object.values(cards);
-    return list.sort((a, b) => {
-      if (a.type === 'group' && b.type !== 'group') return -1;
-      if (a.type !== 'group' && b.type === 'group') return 1;
-      return 0;
-    });
-  }, [cards]);
+  const isInteractivePreview = (card) => (
+    card.type === 'link' || card.type === 'youtube' || card.previewType === 'video'
+  );
 
-  const getPreviewStyle = (card) => ({
-    left: `${card.position.x * zoom + panX}px`,
-    top: `${card.position.y * zoom + panY}px`,
-    width: `${card.size.width * zoom}px`,
-    height: `${card.size.height * zoom}px`,
-  });
+  const getPreviewTitle = (card) => {
+    if (card.type === 'link') {
+      if (!card.url) return 'Link preview';
+
+      try {
+        return new URL(card.url).hostname || card.url;
+      } catch {
+        return card.url;
+      }
+    }
+
+    if (card.type === 'youtube') {
+      return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+    }
+
+    if (card.previewType === 'video') {
+      return card.fileName || 'Video preview';
+    }
+
+    return 'Preview';
+  };
+
+  const getPreviewStyle = (card) => {
+    const inset = isInteractivePreview(card)
+      ? Math.min(12, Math.max(6, 8 * zoom))
+      : 0;
+    const width = Math.max(0, card.size.width * zoom - inset * 2);
+    const height = Math.max(0, card.size.height * zoom - inset * 2);
+
+    return {
+      left: `${card.position.x * zoom + panX + inset}px`,
+      top: `${card.position.y * zoom + panY + inset}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+    };
+  };
+
+  const handlePreviewDragStart = (cardId, e) => {
+    if (e.button !== 0) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const card = cards[cardId];
+    if (!card) return;
+
+    previewDragStateRef.current = {
+      cardId,
+      startX: e.clientX,
+      startY: e.clientY,
+      cardX: card.position.x,
+      cardY: card.position.y,
+      moved: false,
+    };
+
+    selectCards([cardId]);
+
+    const handleMouseMove = (moveEvent) => {
+      const dragState = previewDragStateRef.current;
+      if (!dragState || dragState.cardId !== cardId) return;
+
+      const deltaX = (moveEvent.clientX - dragState.startX) / zoom;
+      const deltaY = (moveEvent.clientY - dragState.startY) / zoom;
+      const distance = Math.sqrt((moveEvent.clientX - dragState.startX) ** 2 + (moveEvent.clientY - dragState.startY) ** 2);
+
+      if (distance < 3) {
+        return;
+      }
+
+      if (!dragState.moved) {
+        recordHistory();
+        dragState.moved = true;
+      }
+
+      updateCardPosition(cardId, dragState.cardX + deltaX, dragState.cardY + deltaY);
+    };
+
+    const handleMouseUp = () => {
+      previewDragStateRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   return (
     <div className={styles.canvasContainer} style={{ cursor: cursorStyle }}>
@@ -1718,7 +1839,12 @@ const InfiniteCanvas = () => {
         <div
           key={`preview-${card.id}`}
           className={styles.cardPreviewOverlay}
-          style={getPreviewStyle(card)}
+          style={{
+            ...getPreviewStyle(card),
+            pointerEvents: (isDraggingCard || isResizingCard)
+              ? 'none'
+              : (isInteractivePreview(card) ? 'auto' : 'none'),
+          }}
         >
           {renderCardPreview(card)}
         </div>
