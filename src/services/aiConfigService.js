@@ -50,7 +50,8 @@ class AiConfigService {
     const rows = db.prepare(`
       SELECT
         id, name, base_url, model, api_key_enc, system_prompt,
-        temperature, max_tokens, path, header_name, header_prefix
+        temperature, max_tokens, path, header_name, header_prefix,
+        allow_images, allow_videos, allow_pdfs, allow_documents
       FROM ai_config
     `).all();
 
@@ -72,6 +73,10 @@ class AiConfigService {
           path: row.path || '/chat/completions',
           headerName: row.header_name || 'Authorization',
           headerPrefix: row.header_prefix ?? 'Bearer ',
+          allowImages: Boolean(row.allow_images),
+          allowVideos: Boolean(row.allow_videos),
+          allowPdfs: Boolean(row.allow_pdfs),
+          allowDocuments: Boolean(row.allow_documents),
         };
       } catch (error) {
         console.warn('Failed to decrypt AI settings. Please re-enter the API key.', error);
@@ -87,6 +92,10 @@ class AiConfigService {
           path: row.path || '/chat/completions',
           headerName: row.header_name || 'Authorization',
           headerPrefix: row.header_prefix ?? 'Bearer ',
+          allowImages: Boolean(row.allow_images),
+          allowVideos: Boolean(row.allow_videos),
+          allowPdfs: Boolean(row.allow_pdfs),
+          allowDocuments: Boolean(row.allow_documents),
         };
       }
     });
@@ -112,10 +121,12 @@ class AiConfigService {
       INSERT INTO ai_config (
         id, name, base_url, model, api_key_enc, system_prompt,
         temperature, max_tokens, path, header_name, header_prefix,
+        allow_images, allow_videos, allow_pdfs, allow_documents,
         created_at, updated_at
       ) VALUES (
         @id, @name, @baseUrl, @model, @apiKeyEnc, @systemPrompt,
         @temperature, @maxTokens, @path, @headerName, @headerPrefix,
+        @allowImages, @allowVideos, @allowPdfs, @allowDocuments,
         @createdAt, @updatedAt
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -129,6 +140,10 @@ class AiConfigService {
         path = excluded.path,
         header_name = excluded.header_name,
         header_prefix = excluded.header_prefix,
+        allow_images = excluded.allow_images,
+        allow_videos = excluded.allow_videos,
+        allow_pdfs = excluded.allow_pdfs,
+        allow_documents = excluded.allow_documents,
         updated_at = excluded.updated_at
     `);
 
@@ -155,6 +170,10 @@ class AiConfigService {
           path: config.path || '/chat/completions',
           headerName: config.headerName || 'Authorization',
           headerPrefix: config.headerPrefix ?? 'Bearer ',
+          allowImages: config.allowImages ? 1 : 0,
+          allowVideos: config.allowVideos ? 1 : 0,
+          allowPdfs: config.allowPdfs ? 1 : 0,
+          allowDocuments: config.allowDocuments ? 1 : 0,
           createdAt: now,
           updatedAt: now,
         });

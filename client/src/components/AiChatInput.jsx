@@ -16,29 +16,73 @@ const AiChatInput = ({
 
   const textAreaRef = useRef(null);
 
-  const selectedCardIds = useCanvasStore((state) => state.selectedCardIds);
+  const aiSelectedCardIds = useCanvasStore((state) => state.aiSelectedCardIds);
   const cards = useCanvasStore((state) => state.cards);
 
-  const selectedTextCards = useMemo(() => {
-    return selectedCardIds
+  const selectedCards = useMemo(() => {
+    return aiSelectedCardIds
       .map((id) => cards[id])
-      .filter((card) => Boolean(card && card.type === 'text' && card.content && card.content.trim()));
-  }, [selectedCardIds, cards]);
+      .filter(Boolean);
+  }, [aiSelectedCardIds, cards]);
+
+  const getCardSummaryLabel = (card) => {
+    if (!card) return 'Selected card';
+
+    if (card.type === 'text') {
+      const content = card.content || '';
+      const firstLine = content.split('\n')[0] || '';
+      const snippet = firstLine.length > 48 ? `${firstLine.slice(0, 48)}…` : firstLine;
+      return snippet || 'Text card';
+    }
+
+    if (card.type === 'image') {
+      return card.fileName || 'Image card';
+    }
+
+    if (card.type === 'file') {
+      if (card.fileName) return card.fileName;
+      if (card.previewType === 'pdf') return 'PDF file';
+      if (card.previewType === 'video') return 'Video file';
+      if (card.previewType === 'text') return 'Text file';
+      return 'File card';
+    }
+
+    if (card.type === 'link') {
+      return card.url || 'Link card';
+    }
+
+    if (card.type === 'youtube') {
+      return card.videoId ? `YouTube: ${card.videoId}` : 'YouTube card';
+    }
+
+    if (card.type === 'group') {
+      return card.title ? `Group: ${card.title}` : 'Group card';
+    }
+
+    return 'Selected card';
+  };
 
   const selectedSummary = useMemo(() => {
-    if (selectedTextCards.length === 0) return null;
-    const first = selectedTextCards[0]?.content || '';
-    const firstLine = first.split('\n')[0] || '';
-    const snippet = firstLine.length > 48 ? `${firstLine.slice(0, 48)}…` : firstLine;
+    if (selectedCards.length === 0) return null;
     return {
-      text: snippet || 'Selected text card',
-      count: selectedTextCards.length,
+      text: getCardSummaryLabel(selectedCards[0]),
+      count: selectedCards.length,
     };
-  }, [selectedTextCards]);
+  }, [selectedCards]);
 
   const activeConfig = useMemo(() => {
     return configs.find((item) => item.id === activeConfigId) || null;
   }, [configs, activeConfigId]);
+
+  const encodeBase64 = (value) => {
+    if (!value) return '';
+    try {
+      return window.btoa(unescape(encodeURIComponent(value)));
+    } catch (error) {
+      console.warn('Failed to encode attachment to base64:', error);
+      return '';
+    }
+  };
 
   const syncTextareaHeight = () => {
     const textArea = textAreaRef.current;
@@ -57,13 +101,102 @@ const AiChatInput = ({
     if (isLoading) return;
 
     const trimmedInput = inputText.trim();
-    const selectedTexts = selectedTextCards.map((card, index) => {
-      return `Card ${index + 1} (ID: ${card.id})\n${card.content}`;
+    const selectedPayloads = selectedCards.map((card, index) => {
+      const header = `Card ${index + 1} (ID: ${card.id})`;
+      const typeLabel = card.previewType ? `${card.type} (${card.previewType})` : card.type;
+      const details = [`Type: ${typeLabel}`];
+
+      if (card.type === 'text') {
+        details.push(`Content:\n${card.content || ''}`);
+      } else if (card.type === 'image') {
+        if (card.fileName) details.push(`File name: ${card.fileName}`);
+        if (card.fileType) details.push(`MIME type: ${card.fileType}`);
+        details.push('Image attached');
+      } else if (card.type === 'file') {
+        if (card.fileName) details.push(`File name: ${card.fileName}`);
+        if (card.fileType) details.push(`MIME type: ${card.fileType}`);
+        if (card.previewType === 'text') {
+          details.push('Text file attached');
+        } else {
+          details.push('File attached');
+        }
+      } else if (card.type === 'link') {
+        if (card.url) {
+          details.push(`URL: ${card.url}`);
+        }
+      } else if (card.type === 'youtube') {
+        if (card.videoId) {
+          details.push(`Video ID: ${card.videoId}`);
+          details.push(`URL: https://www.youtube.com/watch?v=${card.videoId}`);
+        }
+      } else if (card.type === 'group') {
+        if (card.title) details.push(`Title: ${card.title}`);
+        if (Array.isArray(card.childIds)) {
+          details.push(`Child card IDs: ${card.childIds.join(', ')}`);
+        }
+      } else if (card.content) {
+        details.push(`Content:\n${card.content}`);
+      }
+
+      return `${header}\n${details.join('\n')}`.trim();
     });
 
+    const attachments = selectedCards
+      .map((card) => {
+        if (card.type === 'image' && card.content) {
+          return {
+            type: 'image',
+            mimeType: card.fileType || '',
+            name: card.fileName || '',
+            data: card.content,
+          };
+        }
+
+        if (card.type === 'file' && card.content) {
+          if (card.previewType === 'video') {
+            return {
+              type: 'video',
+              mimeType: card.fileType || '',
+              name: card.fileName || '',
+              data: card.content,
+            };
+          }
+
+          if (card.previewType === 'pdf') {
+            return {
+              type: 'pdf',
+              mimeType: card.fileType || 'application/pdf',
+              name: card.fileName || '',
+              data: card.content,
+            };
+          }
+
+          if (card.previewType === 'text') {
+            const encoded = encodeBase64(card.content);
+            if (!encoded) return null;
+            return {
+              type: 'document',
+              mimeType: card.fileType || 'text/plain',
+              name: card.fileName || '',
+              data: encoded,
+            };
+          }
+
+          return {
+            type: 'document',
+            mimeType: card.fileType || '',
+            name: card.fileName || '',
+            data: card.content,
+          };
+        }
+
+        return null;
+      })
+      .filter(Boolean);
+
     const combinedMessage = (() => {
-      if (selectedTexts.length === 0) return trimmedInput;
-      const joinedCards = selectedTexts.join('\n\n---\n\n');
+      if (selectedPayloads.length === 0) return trimmedInput;
+      const joinedCards = selectedPayloads.join('\n\n---\n\n');
       return trimmedInput ? `${joinedCards}\n\nUser message:\n${trimmedInput}` : joinedCards;
     })();
 
@@ -71,7 +204,7 @@ const AiChatInput = ({
 
     if (!activeConfigId) return;
 
-    onAiSubmit(combinedMessage, activeConfigId);
+    onAiSubmit(combinedMessage, activeConfigId, attachments);
     setInputText('');
   };
 
@@ -114,7 +247,7 @@ const AiChatInput = ({
     setShowServiceSelector((prev) => !prev);
   };
 
-  const canSend = Boolean(activeConfig) && (Boolean(inputText.trim()) || selectedTextCards.length > 0);
+  const canSend = Boolean(activeConfig) && (Boolean(inputText.trim()) || selectedCards.length > 0);
   const configLabel = activeConfig ? (activeConfig.name || activeConfig.model) : 'Select model';
 
   return (

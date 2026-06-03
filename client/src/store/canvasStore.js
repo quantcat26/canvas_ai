@@ -72,6 +72,7 @@ const useCanvasStore = create((set, get) => ({
   connections: {},
   selectedCardIds: [],
   selectedConnectionIds: [],
+  aiSelectedCardIds: [],
   isConnectingMode: false,
   history: [],
   future: [],
@@ -172,6 +173,7 @@ const useCanvasStore = create((set, get) => ({
       future: [...future, currentSnapshot],
       selectedCardIds: [],
       selectedConnectionIds: [],
+      aiSelectedCardIds: [],
     });
   },
 
@@ -190,6 +192,7 @@ const useCanvasStore = create((set, get) => ({
       future: future.slice(0, -1),
       selectedCardIds: [],
       selectedConnectionIds: [],
+      aiSelectedCardIds: [],
     });
   },
 
@@ -269,6 +272,7 @@ const useCanvasStore = create((set, get) => ({
         cards: nextCards,
         connections: remainingConnections,
         selectedCardIds: state.selectedCardIds.filter((id) => id !== cardId),
+        aiSelectedCardIds: state.aiSelectedCardIds.filter((id) => id !== cardId),
       };
     });
   },
@@ -329,12 +333,23 @@ const useCanvasStore = create((set, get) => ({
 
   selectConnections: (connectionIds) => set({ selectedConnectionIds: connectionIds }),
 
+  toggleAiSelectedCard: (cardId) => set((state) => {
+    const isSelected = state.aiSelectedCardIds.includes(cardId);
+    const nextSelected = isSelected
+      ? state.aiSelectedCardIds.filter((id) => id !== cardId)
+      : [...state.aiSelectedCardIds, cardId];
+    return { aiSelectedCardIds: nextSelected };
+  }),
+
+  clearAiSelection: () => set({ aiSelectedCardIds: [] }),
+
   clearSelection: () => set({ selectedCardIds: [], selectedConnectionIds: [] }),
 
   hydrate: (state) => set(() => ({
     ...state,
     selectedCardIds: [],
     selectedConnectionIds: [],
+    aiSelectedCardIds: [],
     history: [],
     future: [],
   })),

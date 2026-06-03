@@ -13,6 +13,10 @@ const createEmptyForm = () => ({
   path: '/chat/completions',
   headerName: 'Authorization',
   headerPrefix: 'Bearer ',
+  allowImages: false,
+  allowVideos: false,
+  allowPdfs: false,
+  allowDocuments: false,
 });
 
 const AiConfigModal = ({
@@ -49,6 +53,10 @@ const AiConfigModal = ({
       path: config.path || '/chat/completions',
       headerName: config.headerName || 'Authorization',
       headerPrefix: config.headerPrefix ?? 'Bearer ',
+      allowImages: Boolean(config.allowImages),
+      allowVideos: Boolean(config.allowVideos),
+      allowPdfs: Boolean(config.allowPdfs),
+      allowDocuments: Boolean(config.allowDocuments),
     });
     setError('');
   };
@@ -90,6 +98,10 @@ const AiConfigModal = ({
       path: form.path.trim() || '/chat/completions',
       headerName: form.headerName.trim() || 'Authorization',
       headerPrefix: form.headerPrefix ?? 'Bearer ',
+      allowImages: Boolean(form.allowImages),
+      allowVideos: Boolean(form.allowVideos),
+      allowPdfs: Boolean(form.allowPdfs),
+      allowDocuments: Boolean(form.allowDocuments),
     });
 
     resetForm();
@@ -240,6 +252,42 @@ const AiConfigModal = ({
                 onChange={(e) => setForm({ ...form, headerPrefix: e.target.value })}
               />
             </label>
+            <div className="ai-config-toggle-group">
+              <div className="ai-config-toggle-title">Enable multimodal inputs</div>
+              <label className="ai-config-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.allowImages}
+                  onChange={(e) => setForm({ ...form, allowImages: e.target.checked })}
+                />
+                Images
+              </label>
+              <label className="ai-config-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.allowVideos}
+                  onChange={(e) => setForm({ ...form, allowVideos: e.target.checked })}
+                />
+                Videos
+              </label>
+              <label className="ai-config-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.allowPdfs}
+                  onChange={(e) => setForm({ ...form, allowPdfs: e.target.checked })}
+                />
+                PDFs
+              </label>
+              <label className="ai-config-toggle">
+                <input
+                  type="checkbox"
+                  checked={form.allowDocuments}
+                  onChange={(e) => setForm({ ...form, allowDocuments: e.target.checked })}
+                />
+                Documents
+              </label>
+              <span className="ai-config-inline-hint">Turn on only the modalities your AI provider supports.</span>
+            </div>
           </div>
           {error && <div className="ai-config-error">{error}</div>}
           <div className="ai-config-footer">

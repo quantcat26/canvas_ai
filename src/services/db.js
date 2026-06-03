@@ -64,6 +64,10 @@ const ensureSchema = (db) => {
       path TEXT NOT NULL,
       header_name TEXT NOT NULL,
       header_prefix TEXT NOT NULL,
+      allow_images INTEGER NOT NULL DEFAULT 0,
+      allow_videos INTEGER NOT NULL DEFAULT 0,
+      allow_pdfs INTEGER NOT NULL DEFAULT 0,
+      allow_documents INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -127,6 +131,7 @@ const initDb = async () => {
   dbInstance.pragma('foreign_keys = ON');
   ensureSchema(dbInstance);
   ensureCardColumns(dbInstance);
+  ensureAiConfigColumns(dbInstance);
   return dbInstance;
 };
 
@@ -145,6 +150,19 @@ function ensureCardColumns(db) {
   addColumn('group_title', 'group_title TEXT');
   addColumn('group_child_ids', 'group_child_ids TEXT');
   addColumn('group_auto_resize', 'group_auto_resize INTEGER');
+}
+
+function ensureAiConfigColumns(db) {
+  const columns = db.prepare('PRAGMA table_info(ai_config)').all().map((row) => row.name);
+  const addColumn = (name, definition) => {
+    if (columns.includes(name)) return;
+    db.exec(`ALTER TABLE ai_config ADD COLUMN ${definition}`);
+  };
+
+  addColumn('allow_images', 'allow_images INTEGER NOT NULL DEFAULT 0');
+  addColumn('allow_videos', 'allow_videos INTEGER NOT NULL DEFAULT 0');
+  addColumn('allow_pdfs', 'allow_pdfs INTEGER NOT NULL DEFAULT 0');
+  addColumn('allow_documents', 'allow_documents INTEGER NOT NULL DEFAULT 0');
 }
 
 const getTableColumns = (db, tableName) => {

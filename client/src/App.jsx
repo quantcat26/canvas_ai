@@ -147,12 +147,12 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [canvasStateForSave, canvasName, activeCanvasId, hasHydrated]);
 
-  const handleAiSubmit = async (message, configId) => {
+  const handleAiSubmit = async (message, configId, attachments = []) => {
     try {
       setIsLoading(true);
       console.log('Sending to AI:', message, 'configId:', configId);
 
-      const response = await ApiService.sendChatMessage(message, configId);
+      const response = await ApiService.sendChatMessage(message, configId, attachments);
       setAiResponses((prev) => [...prev, response]);
     } catch (error) {
       console.error('AI request failed:', error);

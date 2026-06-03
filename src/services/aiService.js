@@ -28,7 +28,7 @@ const extractProviderErrorDetails = (data) => {
 };
 
 class AIService {
-  async askOpenAICompatible({ message, model, systemPrompt, temperature, maxTokens, provider }) {
+  async askOpenAICompatible({ message, attachments = [], model, systemPrompt, temperature, maxTokens, provider }) {
     const baseUrl = normalizeBaseUrl(provider.baseUrl);
     const path = normalizePath(provider.path || '/chat/completions');
     const url = `${baseUrl}${path}`;
@@ -44,11 +44,58 @@ class AIService {
       headers[headerName] = headerPrefix ? `${headerPrefix}${provider.apiKey}` : provider.apiKey;
     }
 
+    const normalizeAttachmentDataUrl = (attachment) => {
+      if (!attachment?.data) return '';
+      if (attachment.data.startsWith('data:')) return attachment.data;
+      if (attachment.mimeType) {
+        return `data:${attachment.mimeType};base64,${attachment.data}`;
+      }
+      return '';
+    };
+
+    const buildAttachmentText = (attachment) => {
+      const header = `Attachment: ${attachment.name || 'Untitled'}`;
+      const meta = [
+        `Type: ${attachment.type}`,
+        attachment.mimeType ? `MIME: ${attachment.mimeType}` : null,
+      ].filter(Boolean).join('\n');
+      return `${header}\n${meta}\n\nContent (base64):\n${attachment.data}`.trim();
+    };
+
+    const buildUserContent = () => {
+      const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+      if (!attachments || attachments.length === 0) {
+        return trimmedMessage;
+      }
+
+      const content = [];
+      if (trimmedMessage) {
+        content.push({ type: 'text', text: trimmedMessage });
+      }
+
+      attachments.forEach((attachment) => {
+        if (attachment.type === 'image') {
+          const dataUrl = normalizeAttachmentDataUrl(attachment);
+          if (dataUrl) {
+            content.push({ type: 'image_url', image_url: { url: dataUrl } });
+            return;
+          }
+        }
+        content.push({ type: 'text', text: buildAttachmentText(attachment) });
+      });
+
+      if (content.length === 1 && content[0].type === 'text') {
+        return content[0].text;
+      }
+
+      return content;
+    };
+
     const messages = [];
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
-    messages.push({ role: 'user', content: message });
+    messages.push({ role: 'user', content: buildUserContent() });
 
     const payload = {
       model,

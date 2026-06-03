@@ -269,6 +269,11 @@
   color: #2f6bff;
 }
 
+.selectedOptionButton {
+  background: rgba(47, 107, 255, 0.14);
+  color: #1e57e8;
+}
+
 .dangerButton {
   background: rgba(255, 77, 79, 0.12);
   color: #b42318;

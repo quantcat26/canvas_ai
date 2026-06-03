@@ -159,6 +159,7 @@ const InfiniteCanvas = () => {
     zoom, panX, panY,
     cards, connections,
     selectedCardIds, selectedConnectionIds,
+    aiSelectedCardIds, toggleAiSelectedCard,
     isConnectingMode, setPan, setZoom, updateCard, selectCards,
     clearSelection, selectConnections, updateConnection, addCard, removeCard,
     recordHistory, undo, redo,
@@ -1621,6 +1622,14 @@ const InfiniteCanvas = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
+  const handleChatToggle = (cardId, event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    toggleAiSelectedCard(cardId);
+  };
+
   return (
     <div className={styles.canvasContainer} style={{ cursor: cursorStyle }}>
       {isConnectingMode && (
@@ -1891,6 +1900,13 @@ const InfiniteCanvas = () => {
             top: selectedCard.position.y * zoom + panY - 12,
           }}
         >
+          <button
+            type="button"
+            className={`${styles.cardOptionButton} ${aiSelectedCardIds.includes(selectedCard.id) ? styles.selectedOptionButton : ''}`}
+            onClick={(e) => handleChatToggle(selectedCard.id, e)}
+          >
+            {aiSelectedCardIds.includes(selectedCard.id) ? 'Remove from chat' : 'Add to chat'}
+          </button>
           <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
             {selectedCard.collapsed ? 'Expand' : 'Collapse'}
           </button>
