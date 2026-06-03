@@ -870,7 +870,7 @@ const InfiniteCanvas = () => {
       const target = e.target;
       const isTypingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-      if ((isUndoShortcut || isRedoShortcut) && isTypingTarget) {
+      if (isTypingTarget) {
         return;
       }
 
