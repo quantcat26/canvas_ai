@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import './LeftToolbar.css';
 import useCanvasStore from '../store/canvasStore.js';
+import { getCenteredCardPosition } from '../utils/canvasPosition.js';
 
 const LeftToolbar = () => {
   const {
@@ -17,6 +18,9 @@ const LeftToolbar = () => {
     canUndo,
     canRedo,
     recordHistory,
+    panX,
+    panY,
+    zoom,
   } = useCanvasStore(useShallow((state) => ({
     cards: state.cards,
     addCard: state.addCard,
@@ -30,6 +34,9 @@ const LeftToolbar = () => {
     canUndo: state.history.length > 0,
     canRedo: state.future.length > 0,
     recordHistory: state.recordHistory,
+    panX: state.panX,
+    panY: state.panY,
+    zoom: state.zoom,
   })));
   const [activeTool, setActiveTool] = useState('select');
 
@@ -103,10 +110,7 @@ const LeftToolbar = () => {
     addCard({
       type: 'text',
       content: defaultMarkdownContent,
-      position: {
-        x: window.innerWidth / 2 - 150,
-        y: window.innerHeight / 2 - 100,
-      },
+      position: getCenteredCardPosition({ size: { width: 300, height: 250 }, panX, panY, zoom }),
       size: {
         width: 300,
         height: 250,
@@ -119,10 +123,7 @@ const LeftToolbar = () => {
     addCard({
       type: 'text',
       content: 'Click to edit text content',
-      position: {
-        x: window.innerWidth / 2 - 110,
-        y: window.innerHeight / 2 - 60,
-      },
+      position: getCenteredCardPosition({ size: { width: 220, height: 140 }, panX, panY, zoom }),
       size: {
         width: 220,
         height: 140,
@@ -141,10 +142,7 @@ const LeftToolbar = () => {
     addCard({
       type: 'link',
       url,
-      position: {
-        x: window.innerWidth / 2 - size.width / 2,
-        y: window.innerHeight / 2 - size.height / 2,
-      },
+      position: getCenteredCardPosition({ size, panX, panY, zoom }),
       size,
     });
   };
@@ -156,10 +154,7 @@ const LeftToolbar = () => {
     if (selectedCardIds.length === 0) {
       addCard({
         type: 'group',
-        position: {
-          x: window.innerWidth / 2 - emptySize.width / 2,
-          y: window.innerHeight / 2 - emptySize.height / 2,
-        },
+        position: getCenteredCardPosition({ size: emptySize, panX, panY, zoom }),
         size: emptySize,
         childIds: [],
         autoResize: true,
@@ -219,10 +214,7 @@ const LeftToolbar = () => {
     addCard({
       type: 'youtube',
       videoId,
-      position: {
-        x: window.innerWidth / 2 - size.width / 2,
-        y: window.innerHeight / 2 - size.height / 2,
-      },
+      position: getCenteredCardPosition({ size, panX, panY, zoom }),
       size,
     });
   };
@@ -246,8 +238,7 @@ const LeftToolbar = () => {
       reader.onload = (loadEvent) => {
         const content = loadEvent.target?.result;
         const position = {
-          x: window.innerWidth / 2 - size.width / 2,
-          y: window.innerHeight / 2 - size.height / 2,
+          ...getCenteredCardPosition({ size, panX, panY, zoom }),
         };
 
         if (previewType === 'image') {
