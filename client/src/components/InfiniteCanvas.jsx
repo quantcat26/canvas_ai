@@ -737,7 +737,7 @@ const InfiniteCanvas = () => {
     if (!card) return;
 
     if (isConnectingMode) {
-      const pointerPos = stage?.getPointerPosition();
+      const pointerPos = stageRef.current?.getPointerPosition();
       const canvasPointer = pointerPos
         ? { x: (pointerPos.x - panX) / zoom, y: (pointerPos.y - panY) / zoom }
         : null;
