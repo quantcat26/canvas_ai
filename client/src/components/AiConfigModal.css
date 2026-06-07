@@ -170,6 +170,14 @@
   grid-column: 1 / -1;
 }
 
+.ai-config-toggle-group-content {
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
 .ai-config-toggle-title {
   font-size: 12px;
   font-weight: 600;

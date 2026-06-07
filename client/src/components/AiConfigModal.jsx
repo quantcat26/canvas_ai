@@ -107,6 +107,10 @@ const AiConfigModal = ({
     resetForm();
   };
 
+  const handleAddModel = () => {
+    resetForm();
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -149,6 +153,9 @@ const AiConfigModal = ({
                 </div>
               </div>
             ))}
+            <div className="ai-config-add-model">
+              <button className="ai-config-action" onClick={() => handleAddModel()}>Add Model</button>
+            </div>
           </div>
         </div>
 
@@ -254,6 +261,7 @@ const AiConfigModal = ({
             </label>
             <div className="ai-config-toggle-group">
               <div className="ai-config-toggle-title">Enable multimodal inputs</div>
+              <div className="ai-config-toggle-group-content">
               <label className="ai-config-toggle">
                 <input
                   type="checkbox"
@@ -286,6 +294,7 @@ const AiConfigModal = ({
                 />
                 Documents
               </label>
+              </div>
               <span className="ai-config-inline-hint">Turn on only the modalities your AI provider supports.</span>
             </div>
           </div>
