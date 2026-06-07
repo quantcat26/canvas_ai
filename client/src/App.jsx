@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import ApiService from './services/apiService.js';
 import useCanvasStore from './store/canvasStore.js';
+import { getCenteredCardPosition } from './utils/canvasPosition.js';
 
 function App() {
   const [aiResponses, setAiResponses] = useState([]);
@@ -223,16 +224,6 @@ function App() {
   };
 
   const handleAddResponseToCanvas = (response) => {
-    const canvasElement = document.querySelector('.infinite-canvas');
-    let canvasCenterX = window.innerWidth / 2;
-    let canvasCenterY = window.innerHeight / 2;
-
-    if (canvasElement) {
-      const rect = canvasElement.getBoundingClientRect();
-      canvasCenterX = rect.width / 2;
-      canvasCenterY = rect.height / 2;
-    }
-
     const contentLength = response.text.length;
     const baseWidth = 320;
     let cardHeight = 200;
@@ -243,17 +234,13 @@ function App() {
       cardHeight = 280;
     }
 
+    const size = { width: baseWidth, height: cardHeight };
+
     addCard({
       type: 'text',
       content: response.text,
-      position: {
-        x: canvasCenterX - baseWidth / 2,
-        y: canvasCenterY - cardHeight / 2,
-      },
-      size: {
-        width: baseWidth,
-        height: cardHeight,
-      },
+      position: getCenteredCardPosition({ size, panX, panY, zoom }),
+      size,
     });
 
     const index = aiResponses.findIndex((item) => item.text === response.text);
