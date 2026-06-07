@@ -139,6 +139,13 @@ const getLinkDisplayTitle = (card) => {
   }
 };
 
+const getYoutbeUrl = (card) => {
+  if (card.videoId) {
+    return `https://www.youtube.com/watch?v=${card.videoId}`;
+  }
+  return card.url;
+};
+
 const EmbeddedIframe = memo(({
   src,
   title,
@@ -1427,8 +1434,8 @@ const InfiniteCanvas = () => {
 
   const handleCopyCard = async () => {
     if (!selectedCard) return;
-    const textToCopy = selectedCard.type === 'link'
-      ? (selectedCard.url || '')
+    const textToCopy = (selectedCard.type === 'link' || selectedCard.type === 'youtube')
+      ? (selectedCard.url || getYoutbeUrl(selectedCard) || '')
       : (selectedCard.content || '');
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -1505,7 +1512,7 @@ const InfiniteCanvas = () => {
   };
 
   const handleRenameLink = () => {
-    if (!selectedCard || selectedCard.type !== 'link') return;
+    if (!selectedCard || (selectedCard.type !== 'link' && selectedCard.type !== 'youtube')) return;
     const defaultName = getLinkDisplayTitle(selectedCard);
     const nextName = window.prompt('Enter link name', defaultName);
     if (nextName === null) return;
@@ -1574,7 +1581,8 @@ const InfiniteCanvas = () => {
     }
 
     if (card.type === 'youtube') {
-      return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+      //return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+      return getLinkDisplayTitle(card);
     }
 
     if (card.previewType === 'video') {
@@ -1961,12 +1969,12 @@ const InfiniteCanvas = () => {
           >
             {aiSelectedCardIds.includes(selectedCard.id) ? 'Remove from chat' : 'Add to chat'}
           </button>
-          {selectedCard.type !== 'link' && (
+          {selectedCard.type !== 'link' && selectedCard.type !== 'youtube' && (
             <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
               {selectedCard.collapsed ? 'Expand' : 'Collapse'}
             </button>
           )}
-          { selectedCard.type !== 'link' && (
+          { selectedCard.type !== 'link' && selectedCard.type !== 'youtube' && (
             <button className={styles.cardOptionButton} onClick={handleResize}>
               {selectedCard.type === 'group'
                 ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
@@ -1986,7 +1994,7 @@ const InfiniteCanvas = () => {
               Rename
             </button>
           )}
-          {selectedCard.type === 'link' && (
+          {(selectedCard.type === 'link' || selectedCard.type === 'youtube') && (
             <button className={styles.cardOptionButton} onClick={handleRenameLink}>
               Rename
             </button>
