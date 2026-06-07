@@ -128,6 +128,17 @@ const isPreviewCard = (card) => {
   return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
 };
 
+const getLinkDisplayTitle = (card) => {
+  if (card.title) return card.title;
+  if (!card.url) return 'Link preview';
+
+  try {
+    return new URL(card.url).hostname || card.url;
+  } catch {
+    return card.url;
+  }
+};
+
 const EmbeddedIframe = memo(({
   src,
   title,
@@ -434,6 +445,9 @@ const InfiniteCanvas = () => {
         for (const cardId of selectedCardIds) {
           const card = cards[cardId];
           if (!card) continue;
+          // if (card.type === 'link') {
+          //   continue;
+          // }
           if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) {
             continue;
           }
@@ -693,6 +707,7 @@ const InfiniteCanvas = () => {
     e.evt.stopPropagation();
     const card = cards[cardId];
     if (!card) return;
+    //if (card.type === 'link') return;
     if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) return;
 
     const stage = stageRef.current;
@@ -1412,8 +1427,11 @@ const InfiniteCanvas = () => {
 
   const handleCopyCard = async () => {
     if (!selectedCard) return;
+    const textToCopy = selectedCard.type === 'link'
+      ? (selectedCard.url || '')
+      : (selectedCard.content || '');
     try {
-      await navigator.clipboard.writeText(selectedCard.content || '');
+      await navigator.clipboard.writeText(textToCopy);
     } catch (error) {
       console.error('Failed to copy card content:', error);
     }
@@ -1486,6 +1504,15 @@ const InfiniteCanvas = () => {
     updateCard(selectedCard.id, { title: trimmed || 'Group' });
   };
 
+  const handleRenameLink = () => {
+    if (!selectedCard || selectedCard.type !== 'link') return;
+    const defaultName = getLinkDisplayTitle(selectedCard);
+    const nextName = window.prompt('Enter link name', defaultName);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    updateCard(selectedCard.id, { title: trimmed || undefined });
+  };
+
   const handleUngroupCard = () => {
     if (!selectedCard || !selectedCard.groupId) return;
     const group = cards[selectedCard.groupId];
@@ -1543,13 +1570,7 @@ const InfiniteCanvas = () => {
 
   const getPreviewTitle = (card) => {
     if (card.type === 'link') {
-      if (!card.url) return 'Link preview';
-
-      try {
-        return new URL(card.url).hostname || card.url;
-      } catch {
-        return card.url;
-      }
+      return getLinkDisplayTitle(card);
     }
 
     if (card.type === 'youtube') {
@@ -1866,7 +1887,7 @@ const InfiniteCanvas = () => {
                     y={50}
                     width={card.size.width - 32}
                     height={card.size.height - 60}
-                    text={card.url || 'Link preview'}
+                    text={getLinkDisplayTitle(card)}
                     fontSize={13}
                     fill="#475569"
                     align="center"
@@ -1940,14 +1961,18 @@ const InfiniteCanvas = () => {
           >
             {aiSelectedCardIds.includes(selectedCard.id) ? 'Remove from chat' : 'Add to chat'}
           </button>
-          <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
-            {selectedCard.collapsed ? 'Expand' : 'Collapse'}
-          </button>
-          <button className={styles.cardOptionButton} onClick={handleResize}>
-            {selectedCard.type === 'group'
-              ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
-              : 'Resize'}
-          </button>
+          {selectedCard.type !== 'link' && (
+            <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
+              {selectedCard.collapsed ? 'Expand' : 'Collapse'}
+            </button>
+          )}
+          { selectedCard.type !== 'link' && (
+            <button className={styles.cardOptionButton} onClick={handleResize}>
+              {selectedCard.type === 'group'
+                ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
+                : 'Resize'}
+            </button>
+          )}
           {selectedCard.type !== 'group' && (
             <button className={styles.cardOptionButton} onClick={handleCopyCard}>
               Copy
@@ -1958,6 +1983,11 @@ const InfiniteCanvas = () => {
           </button>
           {selectedCard.type === 'group' && (
             <button className={styles.cardOptionButton} onClick={handleRenameGroup}>
+              Rename
+            </button>
+          )}
+          {selectedCard.type === 'link' && (
+            <button className={styles.cardOptionButton} onClick={handleRenameLink}>
               Rename
             </button>
           )}

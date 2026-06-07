@@ -48,7 +48,13 @@ const AiChatInput = ({
     }
 
     if (card.type === 'link') {
-      return card.url || 'Link card';
+      if (card.title) return card.title;
+      if (!card.url) return 'Link card';
+      try {
+        return new URL(card.url).hostname || card.url;
+      } catch {
+        return card.url;
+      }
     }
 
     if (card.type === 'youtube') {
@@ -121,6 +127,7 @@ const AiChatInput = ({
           details.push('File attached');
         }
       } else if (card.type === 'link') {
+        if (card.title) details.push(`Title: ${card.title}`);
         if (card.url) {
           details.push(`URL: ${card.url}`);
         }
