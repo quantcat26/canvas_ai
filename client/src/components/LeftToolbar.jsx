@@ -149,7 +149,7 @@ const LeftToolbar = () => {
 
   const handleAddGroup = () => {
     setTool('group');
-    const emptySize = { width: 260, height: 180 };
+    const emptySize = { width: 620, height: 460 };
 
     if (selectedCardIds.length === 0) {
       addCard({
