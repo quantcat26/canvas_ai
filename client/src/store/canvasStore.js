@@ -335,10 +335,44 @@ const useCanvasStore = create((set, get) => ({
 
   toggleAiSelectedCard: (cardId) => set((state) => {
     const isSelected = state.aiSelectedCardIds.includes(cardId);
-    const nextSelected = isSelected
-      ? state.aiSelectedCardIds.filter((id) => id !== cardId)
-      : [...state.aiSelectedCardIds, cardId];
-    return { aiSelectedCardIds: nextSelected };
+    const card = state.cards[cardId];
+
+    if (isSelected) {
+      // Deselect: remove cardId and all its descendants
+      const toRemove = new Set([cardId]);
+      if (card?.type === 'group' && Array.isArray(card.childIds)) {
+        const queue = [...card.childIds];
+        while (queue.length > 0) {
+          const childId = queue.shift();
+          toRemove.add(childId);
+          const child = state.cards[childId];
+          if (child?.type === 'group' && Array.isArray(child.childIds)) {
+            child.childIds.forEach((id) => {
+              if (!toRemove.has(id)) queue.push(id);
+            });
+          }
+        }
+      }
+      return { aiSelectedCardIds: state.aiSelectedCardIds.filter((id) => !toRemove.has(id)) };
+    }
+
+    // Select: add cardId and all its descendants
+    const toAdd = new Set([cardId]);
+    if (card?.type === 'group' && Array.isArray(card.childIds)) {
+      const queue = [...card.childIds];
+      while (queue.length > 0) {
+        const childId = queue.shift();
+        toAdd.add(childId);
+        const child = state.cards[childId];
+        if (child?.type === 'group' && Array.isArray(child.childIds)) {
+          child.childIds.forEach((id) => {
+            if (!toAdd.has(id)) queue.push(id);
+          });
+        }
+      }
+    }
+    const newIds = [...toAdd].filter((id) => !state.aiSelectedCardIds.includes(id));
+    return { aiSelectedCardIds: [...state.aiSelectedCardIds, ...newIds] };
   }),
 
   clearAiSelection: () => set({ aiSelectedCardIds: [] }),
