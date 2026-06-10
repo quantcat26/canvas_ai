@@ -11,21 +11,19 @@ const MarkdownCardOverlay = memo(({
   content = '',
   isSelected = false,
   onContentHeight,
+  updateTrigger,
 }) => {
   const innerWidth = Math.max(0, width - CARD_PADDING * 2);
-  const innerHeight = Math.max(0, height - CARD_PADDING * 2);
   const contentRef = useRef(null);
-  const [lastContentKey, setLastContentKey] = useState('');
-
-  const contentKey = `${content}|${width}`;
+  const [lastUpdateTrigger, setLastUpdateTrigger] = useState('');
 
   useLayoutEffect(() => {
     if (!contentRef.current || !onContentHeight) return;
-    if (contentKey === lastContentKey) return;
-    setLastContentKey(contentKey);
+    if (updateTrigger == null) return;
+    if (updateTrigger === lastUpdateTrigger) return;
+    setLastUpdateTrigger(updateTrigger);
 
     const el = contentRef.current;
-    // Small delay to ensure DOM has fully rendered after react-markdown
     const measure = () => {
       const scrollHeight = el.scrollHeight;
       const paddingTotal = CARD_PADDING * 2;
@@ -35,7 +33,6 @@ const MarkdownCardOverlay = memo(({
         onContentHeight(measuredHeight);
       }
     };
-    // Use rAF to ensure layout is settled
     requestAnimationFrame(measure);
   });
 
@@ -53,18 +50,12 @@ const MarkdownCardOverlay = memo(({
     padding: `${CARD_PADDING}px`,
   };
 
-  const wrapperStyle = {
-    width: `${innerWidth}px`,
-    height: `${innerHeight}px`,
-    overflow: 'hidden',
-  };
-
   return (
     <Html
       groupProps={{ x: 0, y: 0 }}
       divProps={{ style: divStyle }}
     >
-      <div style={wrapperStyle} ref={contentRef}>
+      <div style={{ width: `${innerWidth}px` }} ref={contentRef}>
         <MarkdownContent
           content={content}
           className="markdown-content--canvas"

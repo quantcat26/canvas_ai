@@ -200,14 +200,19 @@ const InfiniteCanvas = () => {
           newHeight = Math.max(50, cardInitialSize.height + deltaY);
         }
 
-        updateCard(
-          resizingCardId,
-          {
-            size: { width: newWidth, height: newHeight },
-            position: { x: newX, y: newY },
-          },
-          { skipHistory: true },
-        );
+        {
+          const resizeCard = cards[resizingCardId];
+          const isTextAutoResize = resizeCard?.type === 'text' && resizeCard?.autoResize !== false;
+          const finalHeight = isTextAutoResize ? resizeCard.size.height : newHeight;
+          updateCard(
+            resizingCardId,
+            {
+              size: { width: newWidth, height: finalHeight },
+              position: { x: newX, y: newY },
+            },
+            { skipHistory: true },
+          );
+        }
 
         if (card.groupId) {
           syncGroupBounds(card.groupId);
@@ -226,6 +231,7 @@ const InfiniteCanvas = () => {
           if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) {
             continue;
           }
+          const isTextAutoResize = card.type === 'text' && card.autoResize !== false;
 
           const relativeX = canvasX - card.position.x;
           const relativeY = canvasY - card.position.y;
@@ -247,6 +253,12 @@ const InfiniteCanvas = () => {
               edgeType = 'bottom';
             }
 
+            if (edgeType) {
+              // Block height-affecting edges when auto-resize is on for text cards
+              if (isTextAutoResize && (edgeType === 'bottom' || edgeType === 'top' || edgeType === 'corner')) {
+                edgeType = null;
+              }
+            }
             if (edgeType) {
               setActiveEdge({ cardId, edgeType });
 
@@ -484,6 +496,7 @@ const InfiniteCanvas = () => {
     if (!card) return;
     //if (card.type === 'link') return;
     if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) return;
+    if (card.type === 'text' && card.autoResize !== false && (type === 'bottom' || type === 'top' || type === 'corner')) return;
 
     const stage = stageRef.current;
     if (!stage) return;
@@ -1174,7 +1187,8 @@ const InfiniteCanvas = () => {
     }
 
     if (selectedCard.type === 'text') {
-      // Height is auto-measured by TextCardRenderer via DOM layout
+      const nextAutoResize = selectedCard.autoResize !== false;
+      updateCard(selectedCard.id, { autoResize: !nextAutoResize });
       return;
     }
   };
@@ -1658,9 +1672,11 @@ const InfiniteCanvas = () => {
             <button className={styles.cardOptionButton} onClick={handleResize}>
               {selectedCard.type === 'group'
                 ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
-                : (selectedCard.type === 'file' || selectedCard.type === 'image')
-                  ? 'Resize to resolution'
-                  : 'Resize'}
+                : selectedCard.type === 'text'
+                  ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
+                  : (selectedCard.type === 'file' || selectedCard.type === 'image')
+                    ? 'Resize to resolution'
+                    : 'Resize'}
             </button>
           )}
           {selectedCard.type !== 'group' && (
