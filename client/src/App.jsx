@@ -1,5 +1,6 @@
 import './App.css';
 import TopBar from './components/TopBar.jsx';
+import FileExplorer from './components/FileExplorer.jsx';
 import AiChatInput from './components/AiChatInput.jsx';
 import LeftToolbar from './components/LeftToolbar.jsx';
 import InfiniteCanvas from './components/InfiniteCanvas.jsx';
@@ -11,13 +12,16 @@ import ApiService from './services/apiService.js';
 import useCanvasStore from './store/canvasStore.js';
 import { getCenteredCardPosition } from './utils/canvasPosition.js';
 
+const LAST_CANVAS_KEY = 'canvas_ai_last_canvas_id';
+
 function App() {
   const [aiResponses, setAiResponses] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [canvasName, setCanvasName] = useState('Default Canvas');
   const [hasHydrated, setHasHydrated] = useState(false);
   const isSavingRef = useRef(false);
-  const activeCanvasId = 'default';
+  const [activeCanvasId, setActiveCanvasId] = useState('default');
+  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [aiConfigs, setAiConfigs] = useState([]);
   const [activeConfigId, setActiveConfigId] = useState('');
   const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -108,31 +112,73 @@ function App() {
     });
   }, [aiConfigs, activeConfigId]);
 
+  // Resolve the initial canvas ID on first mount
   useEffect(() => {
-    const loadCanvas = async () => {
+    const initCanvas = async () => {
+      let resolvedId = null;
+
+      // 1. Try the last-saved canvas ID from localStorage
+      const savedId = localStorage.getItem(LAST_CANVAS_KEY);
+      if (savedId) {
+        try {
+          await ApiService.getCanvas(savedId);
+          resolvedId = savedId;
+        } catch {
+          // Saved ID is stale — fall through
+        }
+      }
+
+      // 2. If no saved ID, try the first project from DB
+      if (!resolvedId) {
+        try {
+          const tree = await ApiService.getProjectTree();
+          const existing = tree.projects.find((p) => p.canvasCount > 0);
+          if (existing) {
+            resolvedId = existing.id;
+          }
+        } catch (e) {
+          console.error('Failed to list projects:', e);
+        }
+      }
+
+      // 3. Still nothing — create the first project + canvas
+      if (!resolvedId) {
+        try {
+          const project = await ApiService.createProject('Default Project');
+          const canvas = await ApiService.createCanvas(project.name, project.id);
+          resolvedId = canvas.id;
+          hydrateCanvas(canvas.state);
+          setCanvasName(canvas.name);
+          localStorage.setItem(LAST_CANVAS_KEY, canvas.id);
+          setActiveCanvasId(canvas.id);
+          setHasHydrated(true);
+          return;
+        } catch (e) {
+          console.error('Failed to create default project:', e);
+          setHasHydrated(true);
+          return;
+        }
+      }
+
+      // 4. Load the resolved canvas
       try {
-        const record = await ApiService.getCanvas(activeCanvasId);
+        const record = await ApiService.getCanvas(resolvedId);
         hydrateCanvas(record.state);
         setCanvasName(record.name);
+        localStorage.setItem(LAST_CANVAS_KEY, resolvedId);
+        setActiveCanvasId(resolvedId);
+        setHasHydrated(true);
       } catch (error) {
-        const isNotFound = error?.response?.status === 404;
-        if (isNotFound) {
-          const created = await ApiService.createCanvas('Default Canvas');
-          hydrateCanvas(created.state);
-          setCanvasName(created.name);
-        } else {
-          console.error('Failed to load canvas:', error);
-        }
-      } finally {
+        console.error('Failed to load canvas:', error);
         setHasHydrated(true);
       }
     };
 
-    loadCanvas();
-  }, [activeCanvasId, hydrateCanvas]);
+    initCanvas();
+  }, []); // run once on mount
 
   useEffect(() => {
-    if (!hasHydrated) return;
+    if (!hasHydrated || !activeCanvasId) return;
 
     const timer = window.setTimeout(async () => {
       try {
@@ -219,6 +265,15 @@ function App() {
     });
   };
 
+  const handleSelectProject = (projectId, projectName) => {
+    setActiveCanvasId(projectId);
+    setCanvasName(projectName || 'Untitled');
+    setFileExplorerOpen(false);
+    localStorage.setItem(LAST_CANVAS_KEY, projectId);
+    // Clear AI responses when switching canvas
+    setAiResponses([]);
+  };
+
   const handleCloseAiResponse = (index) => {
     setAiResponses((prev) => prev.filter((_, i) => i !== index));
   };
@@ -251,7 +306,7 @@ function App() {
 
   return (
     <div className="app-container">
-      <TopBar onOpenSettings={() => setIsConfigOpen(true)} />
+      <TopBar onOpenSettings={() => setIsConfigOpen(true)} onOpenFileExplorer={() => setFileExplorerOpen(true)} />
 
       <div className="main-content">
         <LeftToolbar />
@@ -262,6 +317,13 @@ function App() {
           onAddToCanvas={handleAddResponseToCanvas}
         />
       </div>
+
+      <FileExplorer
+        isOpen={fileExplorerOpen}
+        onToggle={() => setFileExplorerOpen(false)}
+        activeProjectId={activeCanvasId}
+        onSelectProject={handleSelectProject}
+      />
 
       <AiChatInput
         onAiSubmit={handleAiSubmit}

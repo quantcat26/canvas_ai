@@ -89,6 +89,27 @@ const AiChatInput = ({
       return '';
     }
   };
+  const extractBase64FromDataUrl = (dataUrl) => {
+    if (!dataUrl || typeof dataUrl !== 'string') return '';
+    const commaIdx = dataUrl.indexOf(',');
+    if (commaIdx === -1) return '';
+    const body = dataUrl.slice(commaIdx + 1);
+    try {
+      return window.atob(body);
+    } catch {
+      return body;
+    }
+  };
+
+  const getRawContentFromCard = (card) => {
+    if (!card || !card.content) return '';
+    if (card.content.startsWith('data:')) {
+      return extractBase64FromDataUrl(card.content);
+    }
+    return card.content;
+  };
+
+
 
   const syncTextareaHeight = () => {
     const textArea = textAreaRef.current;
@@ -107,7 +128,29 @@ const AiChatInput = ({
     if (isLoading) return;
 
     const trimmedInput = inputText.trim();
-    const selectedPayloads = selectedCards.map((card, index) => {
+
+    // Flatten selected cards: expand group children recursively
+    const getAllFlattenedCards = (cardIds, allCards) => {
+      const result = [];
+      const seen = new Set();
+      const collect = (ids) => {
+        ids.forEach((id) => {
+          const card = allCards[id];
+          if (!card || seen.has(id)) return;
+          seen.add(id);
+          result.push(card);
+          if (card.type === 'group' && Array.isArray(card.childIds)) {
+            collect(card.childIds);
+          }
+        });
+      };
+      collect(cardIds);
+      return result;
+    };
+
+    const flattenedCards = getAllFlattenedCards(aiSelectedCardIds, cards);
+
+    const buildCardPayload = (card, index) => {
       const header = `Card ${index + 1} (ID: ${card.id})`;
       const typeLabel = card.previewType ? `${card.type} (${card.previewType})` : card.type;
       const details = [`Type: ${typeLabel}`];
@@ -137,19 +180,19 @@ const AiChatInput = ({
           details.push(`URL: https://www.youtube.com/watch?v=${card.videoId}`);
         }
       } else if (card.type === 'group') {
-        if (card.title) details.push(`Title: ${card.title}`);
-        if (Array.isArray(card.childIds)) {
-          details.push(`Child card IDs: ${card.childIds.join(', ')}`);
-        }
+        if (card.title) details.push(`Group: ${card.title}`);
       } else if (card.content) {
         details.push(`Content:\n${card.content}`);
       }
 
       return `${header}\n${details.join('\n')}`.trim();
-    });
+    };
 
-    const attachments = selectedCards
-      .map((card) => {
+    const selectedPayloads = flattenedCards.map((card, index) =>
+      buildCardPayload(card, index)
+    );
+
+    const buildCardAttachment = (card) => {
         if (card.type === 'image' && card.content) {
           return {
             type: 'image',
@@ -179,7 +222,9 @@ const AiChatInput = ({
           }
 
           if (card.previewType === 'text') {
-            const encoded = encodeBase64(card.content);
+            const rawContent = getRawContentFromCard(card);
+            if (!rawContent) return null;
+            const encoded = encodeBase64(rawContent);
             if (!encoded) return null;
             return {
               type: 'document',
@@ -198,7 +243,10 @@ const AiChatInput = ({
         }
 
         return null;
-      })
+      };
+
+    const attachments = flattenedCards
+      .map(buildCardAttachment)
       .filter(Boolean);
 
     const combinedMessage = (() => {

@@ -236,10 +236,10 @@ class CanvasService {
     };
   }
 
-  async create(name = 'Untitled Canvas', state) {
+  async create(name = 'Untitled Canvas', state, id = null) {
     await ensureMigrated();
     const db = await getDb();
-    const id = uuidv4();
+    const resolvedId = id || uuidv4();
     const now = new Date().toISOString();
     const nextState = normalizeState(state);
 
@@ -247,16 +247,16 @@ class CanvasService {
       db.prepare(`
         INSERT INTO canvas (id, name, pan_x, pan_y, zoom, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(id, name, nextState.panX, nextState.panY, nextState.zoom, now);
+      `).run(resolvedId, name, nextState.panX, nextState.panY, nextState.zoom, now);
 
-      insertCards(db, id, nextState.cards);
-      insertConnections(db, id, nextState.connections);
+      insertCards(db, resolvedId, nextState.cards);
+      insertConnections(db, resolvedId, nextState.connections);
     });
 
     insert();
 
     return {
-      id,
+      id: resolvedId,
       name,
       updatedAt: now,
       state: nextState,

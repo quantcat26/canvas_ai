@@ -61,7 +61,8 @@ class CanvasController {
         return;
       }
 
-      const created = await canvasService.create(name, state);
+      const id = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : null;
+      const created = await canvasService.create(name, state, id);
       res.status(201).json(created);
     } catch (error) {
       console.error('Failed to create canvas', error);
