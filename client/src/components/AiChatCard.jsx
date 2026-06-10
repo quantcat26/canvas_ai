@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import MarkdownContent from './MarkdownContent.jsx';
+import MarkdownContent from './card-renderers/MarkdownContent.jsx';
 import './AiChatCard.css';
 
 const AiChatCard = ({ content, position, onClose, onAddToCanvas }) => {

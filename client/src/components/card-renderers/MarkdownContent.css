@@ -108,3 +108,18 @@
 .markdown-content--chat {
   font-size: 14px;
 }
+
+/* KaTeX math formula overrides for canvas cards */
+.markdown-content--canvas {
+  font-size: 13px;
+}
+
+.markdown-content--canvas .katex {
+  font-size: 1em;
+}
+
+.markdown-content--canvas .katex-display {
+  margin: 8px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
