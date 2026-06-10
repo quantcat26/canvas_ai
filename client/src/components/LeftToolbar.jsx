@@ -237,31 +237,73 @@ const LeftToolbar = () => {
 
       reader.onload = (loadEvent) => {
         const content = loadEvent.target?.result;
-        const position = {
-          ...getCenteredCardPosition({ size, panX, panY, zoom }),
-        };
+        const contentStr = typeof content === 'string' ? content : '';
 
-        if (previewType === 'image') {
+        const resolveSizeAndAdd = (finalSize) => {
+          const position = {
+            ...getCenteredCardPosition({ size: finalSize, panX, panY, zoom }),
+          };
+
+          if (previewType === 'image') {
+            addCard({
+              type: 'image',
+              content: contentStr,
+              position,
+              size: finalSize,
+              fileType: file.type,
+              fileName: file.name,
+            });
+            return;
+          }
+
           addCard({
-            type: 'image',
-            content: typeof content === 'string' ? content : '',
+            type: 'file',
+            content: contentStr,
             position,
-            size,
+            size: finalSize,
             fileType: file.type,
             fileName: file.name,
+            previewType,
           });
+        };
+
+        // For images, get actual dimensions before adding
+        if (previewType === 'image' && contentStr) {
+          const img = new window.Image();
+          img.onload = () => {
+            const maxDim = 400;
+            let w = img.naturalWidth;
+            let h = img.naturalHeight;
+            if (w > maxDim || h > maxDim) {
+              const ratio = Math.min(maxDim / w, maxDim / h);
+              w = Math.round(w * ratio);
+              h = Math.round(h * ratio);
+            }
+            resolveSizeAndAdd({ width: w, height: h });
+          };
+          img.src = contentStr;
           return;
         }
 
-        addCard({
-          type: 'file',
-          content: typeof content === 'string' ? content : '',
-          position,
-          size,
-          fileType: file.type,
-          fileName: file.name,
-          previewType,
-        });
+        // For videos, get actual dimensions before adding
+        if (previewType === 'video' && contentStr) {
+          const video = document.createElement('video');
+          video.preload = 'metadata';
+          video.onloadedmetadata = () => {
+            const maxDim = 400;
+            let w = video.videoWidth || 320;
+            let h = (video.videoHeight || 240) + 32;
+            if (w > maxDim) {
+              h = Math.round(h * (maxDim / w));
+              w = maxDim;
+            }
+            resolveSizeAndAdd({ width: w, height: h });
+          };
+          video.src = contentStr;
+          return;
+        }
+
+        resolveSizeAndAdd(size);
       };
 
       if (previewType === 'text') {

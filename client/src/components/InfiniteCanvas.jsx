@@ -1423,6 +1423,46 @@ const InfiniteCanvas = () => {
       return;
     }
 
+    if (selectedCard.type === 'file' || selectedCard.type === 'image') {
+      // For file/image cards, resize to the actual file resolution
+      if (selectedCard.type === 'image' && selectedCard.content) {
+        const img = new window.Image();
+        img.onload = () => {
+          const maxDim = 600;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (w > maxDim || h > maxDim) {
+            const ratio = Math.min(maxDim / w, maxDim / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          updateCard(selectedCard.id, {
+            size: { width: w, height: h + 32 },
+            _nativeWidth: img.naturalWidth,
+            _nativeHeight: img.naturalHeight,
+          });
+        };
+        img.src = selectedCard.content;
+        return;
+      }
+      if (selectedCard.type === 'file' && selectedCard.previewType === 'video' && selectedCard.content) {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          const w = video.videoWidth || 320;
+          const h = video.videoHeight || 240;
+          updateCard(selectedCard.id, {
+            size: { width: w, height: h + 32 },
+            _nativeWidth: video.videoWidth,
+            _nativeHeight: video.videoHeight,
+          });
+        };
+        video.src = selectedCard.content;
+        return;
+      }
+      return;
+    }
+
     if (selectedCard.type !== 'text') return;
     const nextHeight = estimateTextCardHeight(selectedCard.content || '', selectedCard.size.width);
 
@@ -1434,6 +1474,27 @@ const InfiniteCanvas = () => {
 
   const handleCopyCard = async () => {
     if (!selectedCard) return;
+
+    if (selectedCard.type === 'file' || selectedCard.type === 'image') {
+      const dataUrl = selectedCard.content;
+      if (!dataUrl) {
+        console.error('No content to copy');
+        return;
+      }
+      try {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ [blob.type]: blob }),
+        ]);
+      } catch (error) {
+        console.error('Failed to copy file to clipboard:', error);
+        const textToCopy = selectedCard.fileName || selectedCard.url || selectedCard.content || '';
+        await navigator.clipboard.writeText(textToCopy);
+      }
+      return;
+    }
+
     const textToCopy = (selectedCard.type === 'link' || selectedCard.type === 'youtube')
       ? (selectedCard.url || getYoutbeUrl(selectedCard) || '')
       : (selectedCard.content || '');
@@ -1520,6 +1581,15 @@ const InfiniteCanvas = () => {
     updateCard(selectedCard.id, { title: trimmed || undefined });
   };
 
+  const handleRenameFile = () => {
+    if (!selectedCard || (selectedCard.type !== 'file' && selectedCard.type !== 'image')) return;
+    const defaultName = selectedCard.title || selectedCard.fileName || 'File';
+    const nextName = window.prompt('Enter file name', defaultName);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    updateCard(selectedCard.id, { title: trimmed || undefined });
+  };
+
   const handleUngroupCard = () => {
     if (!selectedCard || !selectedCard.groupId) return;
     const group = cards[selectedCard.groupId];
@@ -1586,11 +1656,15 @@ const InfiniteCanvas = () => {
     }
 
     if (card.previewType === 'video') {
-      return card.fileName || 'Video preview';
+      return card.title || card.fileName || 'Video preview';
     }
 
     if (card.previewType === 'pdf') {
-      return card.fileName || 'PDF preview';
+      return card.title || card.fileName || 'PDF preview';
+    }
+
+    if (card.type === 'image') {
+      return card.title || card.fileName || 'Image';
     }
 
     return 'Preview';
@@ -1859,7 +1933,7 @@ const InfiniteCanvas = () => {
                     y={55}
                     width={card.size.width}
                     height={30}
-                    text={card.fileName || getFileTypeName(card.fileType)}
+                    text={card.title || card.fileName || getFileTypeName(card.fileType)}
                     fontSize={16}
                     fill="#333"
                     align="center"
@@ -1969,7 +2043,7 @@ const InfiniteCanvas = () => {
           >
             {aiSelectedCardIds.includes(selectedCard.id) ? 'Remove from chat' : 'Add to chat'}
           </button>
-          {selectedCard.type !== 'link' && selectedCard.type !== 'youtube' && (
+          {selectedCard.type !== 'link' && selectedCard.type !== 'youtube' && selectedCard.type !== 'file' && selectedCard.type !== 'image' && (
             <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
               {selectedCard.collapsed ? 'Expand' : 'Collapse'}
             </button>
@@ -1978,12 +2052,14 @@ const InfiniteCanvas = () => {
             <button className={styles.cardOptionButton} onClick={handleResize}>
               {selectedCard.type === 'group'
                 ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
-                : 'Resize'}
+                : (selectedCard.type === 'file' || selectedCard.type === 'image')
+                  ? 'Resize to resolution'
+                  : 'Resize'}
             </button>
           )}
           {selectedCard.type !== 'group' && (
             <button className={styles.cardOptionButton} onClick={handleCopyCard}>
-              Copy
+              {selectedCard.type === 'file' || selectedCard.type === 'image' ? 'Copy file' : 'Copy'}
             </button>
           )}
           <button className={styles.cardOptionButton} onClick={handleDuplicateCard}>
@@ -1996,6 +2072,11 @@ const InfiniteCanvas = () => {
           )}
           {(selectedCard.type === 'link' || selectedCard.type === 'youtube') && (
             <button className={styles.cardOptionButton} onClick={handleRenameLink}>
+              Rename
+            </button>
+          )}
+          {(selectedCard.type === 'file' || selectedCard.type === 'image') && (
+            <button className={styles.cardOptionButton} onClick={handleRenameFile}>
               Rename
             </button>
           )}
