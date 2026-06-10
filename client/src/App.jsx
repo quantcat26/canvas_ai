@@ -12,6 +12,8 @@ import ApiService from './services/apiService.js';
 import useCanvasStore from './store/canvasStore.js';
 import { getCenteredCardPosition } from './utils/canvasPosition.js';
 
+const LAST_CANVAS_KEY = 'canvas_ai_last_canvas_id';
+
 function App() {
   const [aiResponses, setAiResponses] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -110,53 +112,70 @@ function App() {
     });
   }, [aiConfigs, activeConfigId]);
 
+  // Resolve the initial canvas ID on first mount
   useEffect(() => {
-    if (!activeCanvasId) return;
+    const initCanvas = async () => {
+      let resolvedId = null;
 
-    // Ensure project exists in DB
-    const ensureProject = async () => {
-      try {
-        await ApiService.getCanvas(activeCanvasId);
-      } catch (error) {
-        const isNotFound = error?.response?.status === 404;
-        if (isNotFound) {
-          // Canvas doesn't exist yet — create it with a project entry
-          try {
-            const createdProject = await ApiService.createProject('Default Project');
-            const created = await ApiService.createCanvas(createdProject.name, createdProject.id);
-            setActiveCanvasId(created.id);
-            hydrateCanvas(created.state);
-            setCanvasName(created.name);
-            setHasHydrated(true);
-            return;
-          } catch (e) {
-            console.error('Failed to create default project canvas:', e);
-          }
+      // 1. Try the last-saved canvas ID from localStorage
+      const savedId = localStorage.getItem(LAST_CANVAS_KEY);
+      if (savedId) {
+        try {
+          await ApiService.getCanvas(savedId);
+          resolvedId = savedId;
+        } catch {
+          // Saved ID is stale — fall through
         }
       }
-    };
 
-    const loadCanvas = async () => {
+      // 2. If no saved ID, try the first project from DB
+      if (!resolvedId) {
+        try {
+          const tree = await ApiService.getProjectTree();
+          const existing = tree.projects.find((p) => p.canvasCount > 0);
+          if (existing) {
+            resolvedId = existing.id;
+          }
+        } catch (e) {
+          console.error('Failed to list projects:', e);
+        }
+      }
+
+      // 3. Still nothing — create the first project + canvas
+      if (!resolvedId) {
+        try {
+          const project = await ApiService.createProject('Default Project');
+          const canvas = await ApiService.createCanvas(project.name, project.id);
+          resolvedId = canvas.id;
+          hydrateCanvas(canvas.state);
+          setCanvasName(canvas.name);
+          localStorage.setItem(LAST_CANVAS_KEY, canvas.id);
+          setActiveCanvasId(canvas.id);
+          setHasHydrated(true);
+          return;
+        } catch (e) {
+          console.error('Failed to create default project:', e);
+          setHasHydrated(true);
+          return;
+        }
+      }
+
+      // 4. Load the resolved canvas
       try {
-        const record = await ApiService.getCanvas(activeCanvasId);
+        const record = await ApiService.getCanvas(resolvedId);
         hydrateCanvas(record.state);
         setCanvasName(record.name);
+        localStorage.setItem(LAST_CANVAS_KEY, resolvedId);
+        setActiveCanvasId(resolvedId);
         setHasHydrated(true);
       } catch (error) {
-        const isNotFound = error?.response?.status === 404;
-        if (isNotFound) {
-          // Try creating fresh
-          ensureProject();
-        } else {
-          console.error('Failed to load canvas:', error);
-          setHasHydrated(true);
-        }
+        console.error('Failed to load canvas:', error);
+        setHasHydrated(true);
       }
     };
 
-    setHasHydrated(false);
-    loadCanvas();
-  }, [activeCanvasId, hydrateCanvas]);
+    initCanvas();
+  }, []); // run once on mount
 
   useEffect(() => {
     if (!hasHydrated || !activeCanvasId) return;
@@ -250,6 +269,7 @@ function App() {
     setActiveCanvasId(projectId);
     setCanvasName(projectName || 'Untitled');
     setFileExplorerOpen(false);
+    localStorage.setItem(LAST_CANVAS_KEY, projectId);
     // Clear AI responses when switching canvas
     setAiResponses([]);
   };
