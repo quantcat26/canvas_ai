@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Group, Image, Arrow } from 'react-konva';
 import styles from './InfiniteCanvas.module.css';
 import useCanvasStore from '../store/canvasStore.js';
@@ -10,8 +10,8 @@ const RESIZE_EDGE_SENSITIVITY = 8;
 const CARD_TEXT_FONT_SIZE = 14;
 const CARD_TEXT_LINE_HEIGHT = 1.5;
 const CARD_CONTENT_PADDING = 20;
-const AUTO_RESIZE_MIN_HEIGHT = 160;
-const AUTO_RESIZE_MAX_HEIGHT = 620;
+const AUTO_RESIZE_MIN_HEIGHT = 100;
+//const AUTO_RESIZE_MAX_HEIGHT = 1000;
 const GROUP_PADDING = 20;
 const COLLAPSED_CHILD_PREVIEW_RATIO = 0.3;
 const COLLAPSED_GROUP_DRAG_RATIO = 0.7;
@@ -117,11 +117,164 @@ const estimateTextCardHeight = (content, cardWidth) => {
 
   const verticalPadding = CARD_CONTENT_PADDING * 2 - 8;
   const estimatedHeight = visualLineCount * lineHeightPx + verticalPadding;
-  return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
+  return Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight));
+  //return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
 };
 
 const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
 const isExpandedGroupCard = (card) => card?.type === 'group' && !card.collapsed;
+
+const isPreviewCard = (card) => {
+  if (card.type === 'link' || card.type === 'youtube') return true;
+  return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
+};
+
+const getLinkDisplayTitle = (card) => {
+  if (card.title) return card.title;
+  if (!card.url) return 'Link preview';
+
+  try {
+    return new URL(card.url).hostname || card.url;
+  } catch {
+    return card.url;
+  }
+};
+
+const getYoutbeUrl = (card) => {
+  if (card.videoId) {
+    return `https://www.youtube.com/watch?v=${card.videoId}`;
+  }
+  return card.url;
+};
+
+const EmbeddedIframe = memo(({
+  src,
+  title,
+  sandbox,
+  allow,
+  allowFullScreen,
+  referrerPolicy = 'no-referrer',
+}) => (
+  <iframe
+    className={styles.previewFrame}
+    src={src || undefined}
+    title={title}
+    referrerPolicy={referrerPolicy}
+    sandbox={sandbox}
+    allow={allow}
+    allowFullScreen={allowFullScreen}
+  />
+));
+EmbeddedIframe.displayName = 'EmbeddedIframe';
+
+const EmbeddedVideo = memo(({ src }) => (
+  <video
+    className={styles.previewFrame}
+    src={src}
+    playsInline
+    controls
+    preload="metadata"
+  />
+));
+EmbeddedVideo.displayName = 'EmbeddedVideo';
+
+const CardEmbeddedPreview = memo(({
+  card,
+  title,
+  onDragStart,
+}) => {
+  if (card.type === 'link') {
+    return (
+      <div className={styles.previewCardShell}>
+        <div
+          className={styles.previewHeader}
+          onMouseDown={(e) => onDragStart(card.id, e)}
+        >
+          {title}
+        </div>
+        <div className={styles.previewBody}>
+          <EmbeddedIframe
+            src={card.url}
+            title={title}
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (card.type === 'youtube') {
+    const embedUrl = card.videoId
+      ? `https://www.youtube.com/embed/${card.videoId}?rel=0&modestbranding=1`
+      : '';
+    return (
+      <div className={styles.previewCardShell}>
+        <div
+          className={styles.previewHeader}
+          onMouseDown={(e) => onDragStart(card.id, e)}
+        >
+          {title}
+        </div>
+        <div className={styles.previewBody}>
+          <EmbeddedIframe
+            src={embedUrl}
+            title={title}
+            referrerPolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (card.previewType === 'pdf') {
+    return (
+      <div className={styles.previewCardShell}>
+        <div
+          className={styles.previewHeader}
+          onMouseDown={(e) => onDragStart(card.id, e)}
+        >
+          {title}
+        </div>
+        <div className={styles.previewBody}>
+          <EmbeddedIframe
+            src={card.content}
+            title={card.fileName || 'PDF preview'}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (card.previewType === 'video') {
+    return (
+      <div className={styles.previewCardShell}>
+        <div
+          className={styles.previewHeader}
+          onMouseDown={(e) => onDragStart(card.id, e)}
+        >
+          {title}
+        </div>
+        <div className={styles.previewBody}>
+          <EmbeddedVideo src={card.content} />
+        </div>
+      </div>
+    );
+  }
+
+  if (card.previewType === 'text') {
+    const previewText = (card.content || '').slice(0, 4000);
+    return (
+      <pre className={styles.previewText}>
+        {previewText || 'Text preview is empty.'}
+      </pre>
+    );
+  }
+
+  return null;
+});
+CardEmbeddedPreview.displayName = 'CardEmbeddedPreview';
 
 const InfiniteCanvas = () => {
   const stageRef = useRef(null);
@@ -159,6 +312,7 @@ const InfiniteCanvas = () => {
     zoom, panX, panY,
     cards, connections,
     selectedCardIds, selectedConnectionIds,
+    aiSelectedCardIds, toggleAiSelectedCard,
     isConnectingMode, setPan, setZoom, updateCard, selectCards,
     clearSelection, selectConnections, updateConnection, addCard, removeCard,
     recordHistory, undo, redo,
@@ -299,6 +453,9 @@ const InfiniteCanvas = () => {
         for (const cardId of selectedCardIds) {
           const card = cards[cardId];
           if (!card) continue;
+          // if (card.type === 'link') {
+          //   continue;
+          // }
           if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) {
             continue;
           }
@@ -558,6 +715,7 @@ const InfiniteCanvas = () => {
     e.evt.stopPropagation();
     const card = cards[cardId];
     if (!card) return;
+    //if (card.type === 'link') return;
     if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) return;
 
     const stage = stageRef.current;
@@ -737,7 +895,7 @@ const InfiniteCanvas = () => {
     if (!card) return;
 
     if (isConnectingMode) {
-      const pointerPos = stage?.getPointerPosition();
+      const pointerPos = stageRef.current?.getPointerPosition();
       const canvasPointer = pointerPos
         ? { x: (pointerPos.x - panX) / zoom, y: (pointerPos.y - panY) / zoom }
         : null;
@@ -869,7 +1027,7 @@ const InfiniteCanvas = () => {
       const target = e.target;
       const isTypingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-      if ((isUndoShortcut || isRedoShortcut) && isTypingTarget) {
+      if (isTypingTarget) {
         return;
       }
 
@@ -966,110 +1124,6 @@ const InfiniteCanvas = () => {
 
     const parts = fileType.split('/');
     return parts.length > 1 ? `${parts[1].toUpperCase()} file` : 'File';
-  };
-
-  const renderCardPreview = (card) => {
-    if (card.type === 'link') {
-      return (
-        <div className={styles.previewCardShell}>
-          <div
-            className={styles.previewHeader}
-            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
-          >
-            {getPreviewTitle(card)}
-          </div>
-          <div className={styles.previewBody}>
-            <iframe
-              className={styles.previewFrame}
-              src={card.url}
-              title={getPreviewTitle(card)}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (card.type === 'youtube') {
-      const embedUrl = card.videoId
-        ? `https://www.youtube.com/embed/${card.videoId}?rel=0`
-        : '';
-      return (
-        <div className={styles.previewCardShell}>
-          <div
-            className={styles.previewHeader}
-            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
-          >
-            {getPreviewTitle(card)}
-          </div>
-          <div className={styles.previewBody}>
-            <iframe
-              className={styles.previewFrame}
-              src={embedUrl}
-              title={getPreviewTitle(card)}
-              loading="lazy"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (card.previewType === 'pdf') {
-      return (
-        <div className={styles.previewCardShell}>
-          <div
-            className={styles.previewHeader}
-            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
-          >
-            {getPreviewTitle(card)}
-          </div>
-          <div className={styles.previewBody}>
-            <iframe
-              className={styles.previewFrame}
-              src={card.content}
-              title={card.fileName || 'PDF preview'}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (card.previewType === 'video') {
-      return (
-        <div className={styles.previewCardShell}>
-          <div
-            className={styles.previewHeader}
-            onMouseDown={(e) => handlePreviewDragStart(card.id, e)}
-          >
-            {getPreviewTitle(card)}
-          </div>
-          <div className={styles.previewBody}>
-            <video
-              className={styles.previewFrame}
-              src={card.content}
-              playsInline
-              controls
-              preload="metadata"
-            />
-          </div>
-        </div>
-      );
-    }
-
-    if (card.previewType === 'text') {
-      const previewText = (card.content || '').slice(0, 4000);
-      return (
-        <pre className={styles.previewText}>
-          {previewText || 'Text preview is empty.'}
-        </pre>
-      );
-    }
-
-    return null;
   };
 
   const getCardCenter = (card) => ({
@@ -1370,6 +1424,46 @@ const InfiniteCanvas = () => {
       return;
     }
 
+    if (selectedCard.type === 'file' || selectedCard.type === 'image') {
+      // For file/image cards, resize to the actual file resolution
+      if (selectedCard.type === 'image' && selectedCard.content) {
+        const img = new window.Image();
+        img.onload = () => {
+//          const maxDim = 1200;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          // if (w > maxDim || h > maxDim) {
+          //   const ratio = Math.min(maxDim / w, maxDim / h);
+          //   w = Math.round(w * ratio);
+          //   h = Math.round(h * ratio);
+          // }
+          updateCard(selectedCard.id, {
+            size: { width: w, height: h + 32 },
+            _nativeWidth: img.naturalWidth,
+            _nativeHeight: img.naturalHeight,
+          });
+        };
+        img.src = selectedCard.content;
+        return;
+      }
+      if (selectedCard.type === 'file' && selectedCard.previewType === 'video' && selectedCard.content) {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.onloadedmetadata = () => {
+          const w = video.videoWidth || 320;
+          const h = video.videoHeight || 240;
+          updateCard(selectedCard.id, {
+            size: { width: w, height: h + 32 },
+            _nativeWidth: video.videoWidth,
+            _nativeHeight: video.videoHeight,
+          });
+        };
+        video.src = selectedCard.content;
+        return;
+      }
+      return;
+    }
+
     if (selectedCard.type !== 'text') return;
     const nextHeight = estimateTextCardHeight(selectedCard.content || '', selectedCard.size.width);
 
@@ -1381,8 +1475,32 @@ const InfiniteCanvas = () => {
 
   const handleCopyCard = async () => {
     if (!selectedCard) return;
+
+    if (selectedCard.type === 'file' || selectedCard.type === 'image') {
+      const dataUrl = selectedCard.content;
+      if (!dataUrl) {
+        console.error('No content to copy');
+        return;
+      }
+      try {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ [blob.type]: blob }),
+        ]);
+      } catch (error) {
+        console.error('Failed to copy file to clipboard:', error);
+        const textToCopy = selectedCard.fileName || selectedCard.url || selectedCard.content || '';
+        await navigator.clipboard.writeText(textToCopy);
+      }
+      return;
+    }
+
+    const textToCopy = (selectedCard.type === 'link' || selectedCard.type === 'youtube')
+      ? (selectedCard.url || getYoutbeUrl(selectedCard) || '')
+      : (selectedCard.content || '');
     try {
-      await navigator.clipboard.writeText(selectedCard.content || '');
+      await navigator.clipboard.writeText(textToCopy);
     } catch (error) {
       console.error('Failed to copy card content:', error);
     }
@@ -1455,6 +1573,24 @@ const InfiniteCanvas = () => {
     updateCard(selectedCard.id, { title: trimmed || 'Group' });
   };
 
+  const handleRenameLink = () => {
+    if (!selectedCard || (selectedCard.type !== 'link' && selectedCard.type !== 'youtube')) return;
+    const defaultName = getLinkDisplayTitle(selectedCard);
+    const nextName = window.prompt('Enter link name', defaultName);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    updateCard(selectedCard.id, { title: trimmed || undefined });
+  };
+
+  const handleRenameFile = () => {
+    if (!selectedCard || (selectedCard.type !== 'file' && selectedCard.type !== 'image')) return;
+    const defaultName = selectedCard.title || selectedCard.fileName || 'File';
+    const nextName = window.prompt('Enter file name', defaultName);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    updateCard(selectedCard.id, { title: trimmed || undefined });
+  };
+
   const handleUngroupCard = () => {
     if (!selectedCard || !selectedCard.groupId) return;
     const group = cards[selectedCard.groupId];
@@ -1501,12 +1637,10 @@ const InfiniteCanvas = () => {
   }, [cards]);
 
   const previewCards = useMemo(() => {
-    return orderedCards.filter((card) => {
-      if (card.type === 'link') return true;
-      if (card.type === 'youtube') return true;
-      return card.type === 'file' && ['pdf', 'video', 'text'].includes(card.previewType);
-    });
-  }, [orderedCards]);
+    return Object.values(cards)
+      .filter(isPreviewCard)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [cards]);
 
   const isInteractivePreview = (card) => (
     card.type === 'link' || card.type === 'youtube' || ['video', 'pdf'].includes(card.previewType)
@@ -1514,25 +1648,24 @@ const InfiniteCanvas = () => {
 
   const getPreviewTitle = (card) => {
     if (card.type === 'link') {
-      if (!card.url) return 'Link preview';
-
-      try {
-        return new URL(card.url).hostname || card.url;
-      } catch {
-        return card.url;
-      }
+      return getLinkDisplayTitle(card);
     }
 
     if (card.type === 'youtube') {
-      return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+      //return card.videoId ? `YouTube • ${card.videoId}` : 'YouTube preview';
+      return getLinkDisplayTitle(card);
     }
 
     if (card.previewType === 'video') {
-      return card.fileName || 'Video preview';
+      return card.title || card.fileName || 'Video preview';
     }
 
     if (card.previewType === 'pdf') {
-      return card.fileName || 'PDF preview';
+      return card.title || card.fileName || 'PDF preview';
+    }
+
+    if (card.type === 'image') {
+      return card.title || card.fileName || 'Image';
     }
 
     return 'Preview';
@@ -1619,6 +1752,14 @@ const InfiniteCanvas = () => {
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleChatToggle = (cardId, event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    toggleAiSelectedCard(cardId);
   };
 
   return (
@@ -1793,7 +1934,7 @@ const InfiniteCanvas = () => {
                     y={55}
                     width={card.size.width}
                     height={30}
-                    text={card.fileName || getFileTypeName(card.fileType)}
+                    text={card.title || card.fileName || getFileTypeName(card.fileType)}
                     fontSize={16}
                     fill="#333"
                     align="center"
@@ -1829,7 +1970,7 @@ const InfiniteCanvas = () => {
                     y={50}
                     width={card.size.width - 32}
                     height={card.size.height - 60}
-                    text={card.url || 'Link preview'}
+                    text={getLinkDisplayTitle(card)}
                     fontSize={13}
                     fill="#475569"
                     align="center"
@@ -1874,12 +2015,17 @@ const InfiniteCanvas = () => {
           className={styles.cardPreviewOverlay}
           style={{
             ...getPreviewStyle(card),
+            zIndex: 2 + getCardZIndex(card),
             pointerEvents: (isDraggingCard || isResizingCard)
               ? 'none'
               : (isInteractivePreview(card) ? 'auto' : 'none'),
           }}
         >
-          {renderCardPreview(card)}
+          <CardEmbeddedPreview
+            card={card}
+            title={getPreviewTitle(card)}
+            onDragStart={handlePreviewDragStart}
+          />
         </div>
       ))}
 
@@ -1891,17 +2037,30 @@ const InfiniteCanvas = () => {
             top: selectedCard.position.y * zoom + panY - 12,
           }}
         >
-          <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
-            {selectedCard.collapsed ? 'Expand' : 'Collapse'}
+          <button
+            type="button"
+            className={`${styles.cardOptionButton} ${aiSelectedCardIds.includes(selectedCard.id) ? styles.selectedOptionButton : ''}`}
+            onClick={(e) => handleChatToggle(selectedCard.id, e)}
+          >
+            {aiSelectedCardIds.includes(selectedCard.id) ? 'Remove from chat' : 'Add to chat'}
           </button>
-          <button className={styles.cardOptionButton} onClick={handleResize}>
-            {selectedCard.type === 'group'
-              ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
-              : 'Resize'}
-          </button>
+          {selectedCard.type !== 'link' && selectedCard.type !== 'youtube' && selectedCard.type !== 'file' && selectedCard.type !== 'image' && (
+            <button className={styles.cardOptionButton} onClick={handleToggleCollapse}>
+              {selectedCard.collapsed ? 'Expand' : 'Collapse'}
+            </button>
+          )}
+          { selectedCard.type !== 'link' && selectedCard.type !== 'youtube' && (
+            <button className={styles.cardOptionButton} onClick={handleResize}>
+              {selectedCard.type === 'group'
+                ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
+                : (selectedCard.type === 'file' || selectedCard.type === 'image')
+                  ? 'Resize to resolution'
+                  : 'Resize'}
+            </button>
+          )}
           {selectedCard.type !== 'group' && (
             <button className={styles.cardOptionButton} onClick={handleCopyCard}>
-              Copy
+              {selectedCard.type === 'file' || selectedCard.type === 'image' ? 'Copy file' : 'Copy'}
             </button>
           )}
           <button className={styles.cardOptionButton} onClick={handleDuplicateCard}>
@@ -1909,6 +2068,16 @@ const InfiniteCanvas = () => {
           </button>
           {selectedCard.type === 'group' && (
             <button className={styles.cardOptionButton} onClick={handleRenameGroup}>
+              Rename
+            </button>
+          )}
+          {(selectedCard.type === 'link' || selectedCard.type === 'youtube') && (
+            <button className={styles.cardOptionButton} onClick={handleRenameLink}>
+              Rename
+            </button>
+          )}
+          {(selectedCard.type === 'file' || selectedCard.type === 'image') && (
+            <button className={styles.cardOptionButton} onClick={handleRenameFile}>
               Rename
             </button>
           )}

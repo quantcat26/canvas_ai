@@ -31,6 +31,23 @@ const normalizeConfig = (value) => {
   const temperature = parseOptionalNumber(value.temperature, { min: 0, max: 2 });
   const maxTokens = parseOptionalNumber(value.maxTokens, { min: 1 });
 
+  const parseOptionalBoolean = (input) => {
+    if (input === null || input === undefined) return null;
+    if (typeof input === 'boolean') return input;
+    if (typeof input === 'number') return input !== 0;
+    if (typeof input === 'string') {
+      const normalized = input.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    }
+    return null;
+  };
+
+  const allowImages = parseOptionalBoolean(value.allowImages) ?? false;
+  const allowVideos = parseOptionalBoolean(value.allowVideos) ?? false;
+  const allowPdfs = parseOptionalBoolean(value.allowPdfs) ?? false;
+  const allowDocuments = parseOptionalBoolean(value.allowDocuments) ?? false;
+
   return {
     id,
     name,
@@ -43,6 +60,29 @@ const normalizeConfig = (value) => {
     path: typeof value.path === 'string' && value.path.trim() ? value.path.trim() : '/chat/completions',
     headerName: typeof value.headerName === 'string' && value.headerName.trim() ? value.headerName.trim() : 'Authorization',
     headerPrefix: typeof value.headerPrefix === 'string' ? value.headerPrefix : 'Bearer ',
+    allowImages,
+    allowVideos,
+    allowPdfs,
+    allowDocuments,
+  };
+};
+
+const normalizeAttachment = (attachment) => {
+  if (!isPlainObject(attachment)) return null;
+
+  const type = typeof attachment.type === 'string' ? attachment.type.trim().toLowerCase() : '';
+  const mimeType = typeof attachment.mimeType === 'string' ? attachment.mimeType.trim() : '';
+  const name = typeof attachment.name === 'string' ? attachment.name.trim() : '';
+  const data = typeof attachment.data === 'string' ? attachment.data.trim() : '';
+
+  if (!type || !data) return null;
+  if (!['image', 'video', 'pdf', 'document'].includes(type)) return null;
+
+  return {
+    type,
+    mimeType,
+    name,
+    data,
   };
 };
 
@@ -52,9 +92,13 @@ const parseChatPayload = (payload) => {
   }
 
   const body = payload;
-  const { message, configId } = body;
+  const { message, configId, attachments } = body;
+  const trimmedMessage = typeof message === 'string' ? message.trim() : '';
+  const normalizedAttachments = Array.isArray(attachments)
+    ? attachments.map(normalizeAttachment).filter(Boolean)
+    : [];
 
-  if (typeof message !== 'string' || message.trim().length === 0) {
+  if (trimmedMessage.length === 0 && normalizedAttachments.length === 0) {
     throw new AppError(400, 'INVALID_MESSAGE', 'Chat messages cannot be empty');
   }
 
@@ -63,15 +107,16 @@ const parseChatPayload = (payload) => {
   }
 
   return {
-    message: message.trim(),
+    message: trimmedMessage,
     configId: configId.trim(),
+    attachments: normalizedAttachments,
   };
 };
 
 class AIController {
   async chat(req, res) {
     try {
-      const { message, configId } = parseChatPayload(req.body);
+      const { message, configId, attachments } = parseChatPayload(req.body);
       const { configs } = await aiConfigService.load();
       const config = configs.find((item) => item.id === configId);
 
@@ -87,8 +132,37 @@ class AIController {
         headerPrefix: config.headerPrefix ?? 'Bearer ',
       };
 
+      const isAttachmentAllowed = (attachment) => {
+        switch (attachment.type) {
+          case 'image':
+            return Boolean(config.allowImages);
+          case 'video':
+            return Boolean(config.allowVideos);
+          case 'pdf':
+            return Boolean(config.allowPdfs);
+          case 'document':
+            return Boolean(config.allowDocuments);
+          default:
+            return false;
+        }
+      };
+
+      if (attachments.length > 0) {
+        const blocked = attachments.filter((attachment) => !isAttachmentAllowed(attachment));
+        if (blocked.length > 0) {
+          const blockedTypes = [...new Set(blocked.map((attachment) => attachment.type))];
+          throw new AppError(
+            400,
+            'AI_MODALITY_DISABLED',
+            `This AI configuration does not allow: ${blockedTypes.join(', ')}`,
+            { blockedTypes },
+          );
+        }
+      }
+
       const response = await aiService.askOpenAICompatible({
         message,
+        attachments,
         model: config.model,
         systemPrompt: config.systemPrompt,
         temperature: config.temperature,
