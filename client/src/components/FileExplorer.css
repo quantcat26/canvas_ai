@@ -223,3 +223,115 @@
   bottom: 0;
   z-index: 299;
 }
+
+/* Drag and drop styles */
+/*
+.file-explorer-item[draggable="true"] {
+  cursor: grab;
+}
+*/
+.file-explorer-item[draggable="true"]:active {
+  cursor: grabbing;
+  opacity: 0.6;
+}
+
+.file-explorer-item.drop-target {
+  background: #e3edff !important;
+  outline: 2px dashed #4285f4;
+  outline-offset: -2px;
+}
+
+.file-explorer-list.drag-active {
+  background: #f8faff;
+}
+
+.file-explorer-drop-zone {
+  border: 2px dashed #aaa;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 8px 12px;
+  text-align: center;
+  color: #888;
+  font-size: 12px;
+  background: #fafafa;
+  animation: dropZonePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dropZonePulse {
+  0%, 100% { border-color: #aaa; background: #fafafa; }
+  50% { border-color: #4285f4; background: #f0f4ff; }
+}
+
+/* Move dialog styles */
+.move-dialog {
+  position: fixed;
+  z-index: 400;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  padding: 20px;
+  min-width: 280px;
+  max-width: 360px;
+  animation: fadeInScale 0.2s ease-out;
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.move-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 12px;
+}
+
+.move-dialog-select {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 13px;
+  color: #333;
+  background: #fff;
+  overflow-y: auto;
+  outline: none;
+}
+
+.move-dialog-select option {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.move-dialog-select option:hover,
+.move-dialog-select option:checked {
+  background: #e3edff;
+}
+
+.move-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.move-dialog-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.move-dialog-btn.cancel {
+  background: #f0f0f0;
+  color: #555;
+}
+
+.move-dialog-btn.cancel:hover {
+  background: #e0e0e0;
+}
