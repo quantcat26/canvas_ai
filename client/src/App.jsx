@@ -225,14 +225,14 @@ function App() {
 
   const handleAddResponseToCanvas = (response) => {
     const contentLength = response.text.length;
-    const baseWidth = 320;
-    let cardHeight = 200;
+    const baseWidth = 620;
+    let cardHeight = 400;
 
-    if (contentLength > 500) {
-      cardHeight = 350;
-    } else if (contentLength > 200) {
-      cardHeight = 280;
-    }
+    // if (contentLength > 500) {
+    //   cardHeight = 350;
+    // } else if (contentLength > 200) {
+    //   cardHeight = 280;
+    // }
 
     const size = { width: baseWidth, height: cardHeight };
 

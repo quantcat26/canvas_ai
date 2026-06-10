@@ -10,8 +10,8 @@ const RESIZE_EDGE_SENSITIVITY = 8;
 const CARD_TEXT_FONT_SIZE = 14;
 const CARD_TEXT_LINE_HEIGHT = 1.5;
 const CARD_CONTENT_PADDING = 20;
-const AUTO_RESIZE_MIN_HEIGHT = 160;
-const AUTO_RESIZE_MAX_HEIGHT = 620;
+const AUTO_RESIZE_MIN_HEIGHT = 100;
+//const AUTO_RESIZE_MAX_HEIGHT = 1000;
 const GROUP_PADDING = 20;
 const COLLAPSED_CHILD_PREVIEW_RATIO = 0.3;
 const COLLAPSED_GROUP_DRAG_RATIO = 0.7;
@@ -117,7 +117,8 @@ const estimateTextCardHeight = (content, cardWidth) => {
 
   const verticalPadding = CARD_CONTENT_PADDING * 2 - 8;
   const estimatedHeight = visualLineCount * lineHeightPx + verticalPadding;
-  return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
+  return Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight));
+  //return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
 };
 
 const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
