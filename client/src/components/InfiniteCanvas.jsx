@@ -1429,14 +1429,14 @@ const InfiniteCanvas = () => {
       if (selectedCard.type === 'image' && selectedCard.content) {
         const img = new window.Image();
         img.onload = () => {
-          const maxDim = 600;
+//          const maxDim = 1200;
           let w = img.naturalWidth;
           let h = img.naturalHeight;
-          if (w > maxDim || h > maxDim) {
-            const ratio = Math.min(maxDim / w, maxDim / h);
-            w = Math.round(w * ratio);
-            h = Math.round(h * ratio);
-          }
+          // if (w > maxDim || h > maxDim) {
+          //   const ratio = Math.min(maxDim / w, maxDim / h);
+          //   w = Math.round(w * ratio);
+          //   h = Math.round(h * ratio);
+          // }
           updateCard(selectedCard.id, {
             size: { width: w, height: h + 32 },
             _nativeWidth: img.naturalWidth,
