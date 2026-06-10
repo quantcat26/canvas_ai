@@ -1,11 +1,11 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Stage, Layer, Rect, Text, Group, Image, Arrow } from 'react-konva';
+import { Stage, Layer, Rect, Group, Arrow } from 'react-konva';
 import styles from './InfiniteCanvas.module.css';
 import useCanvasStore from '../store/canvasStore.js';
-import MarkdownCard from './MarkdownCard.jsx';
+import CardContentRenderer from './card-renderers/CardContentRenderer.jsx';
+import CardPreview from './card-renderers/CardPreview.jsx';
 import ZoomControls from './ZoomControls.jsx';
 
-const imageCache = new Map();
 const RESIZE_EDGE_SENSITIVITY = 8;
 const CARD_TEXT_FONT_SIZE = 14;
 const CARD_TEXT_LINE_HEIGHT = 1.5;
@@ -16,110 +16,6 @@ const GROUP_PADDING = 20;
 const COLLAPSED_CHILD_PREVIEW_RATIO = 0.3;
 const COLLAPSED_GROUP_DRAG_RATIO = 0.7;
 
-const textMeasureContext = typeof document !== 'undefined'
-  ? document.createElement('canvas').getContext('2d')
-  : null;
-
-const measureTextWidth = (text) => {
-  if (!textMeasureContext) return text.length * CARD_TEXT_FONT_SIZE * 0.6;
-  textMeasureContext.font = `${CARD_TEXT_FONT_SIZE}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
-  return textMeasureContext.measureText(text).width;
-};
-
-const splitTextTokens = (text) => {
-  return text.match(/\s+|[A-Za-z0-9]+(?:[._'\-][A-Za-z0-9]+)*|./g) || [];
-};
-
-const splitTokenByWidth = (token, maxWidth) => {
-  const parts = [];
-  let current = '';
-
-  token.split('').forEach((char) => {
-    const next = current + char;
-    if (measureTextWidth(next) > maxWidth && current.length > 0) {
-      parts.push(current);
-      current = char;
-      return;
-    }
-    current = next;
-  });
-
-  if (current.length > 0) {
-    parts.push(current);
-  }
-
-  return parts;
-};
-
-const estimateTextCardHeight = (content, cardWidth) => {
-  const availableWidth = Math.max(40, cardWidth - CARD_CONTENT_PADDING * 2);
-  const lineHeightPx = CARD_TEXT_FONT_SIZE * CARD_TEXT_LINE_HEIGHT;
-  const lines = (content || '').split('\n');
-  let visualLineCount = 0;
-
-  lines.forEach((line) => {
-    if (!line) {
-      visualLineCount += 1;
-      return;
-    }
-
-    const tokens = splitTextTokens(line);
-    let currentWidth = 0;
-    let hasTokenInLine = false;
-
-    tokens.forEach((token, tokenIndex) => {
-      if (!token) return;
-
-      const isWhitespace = /^\s+$/.test(token);
-      if (isWhitespace) {
-        if (!hasTokenInLine) {
-          return;
-        }
-
-        const nextToken = tokens.slice(tokenIndex + 1).find((value) => !/^\s+$/.test(value));
-        if (!nextToken) {
-          return;
-        }
-
-        const spaceWidth = measureTextWidth(token);
-        const nextTokenWidth = measureTextWidth(nextToken);
-        if (currentWidth + spaceWidth + nextTokenWidth > availableWidth) {
-          visualLineCount += 1;
-          currentWidth = 0;
-          hasTokenInLine = false;
-          return;
-        }
-
-        currentWidth += spaceWidth;
-        return;
-      }
-
-      let tokenParts = [token];
-      if (measureTextWidth(token) > availableWidth) {
-        tokenParts = splitTokenByWidth(token, availableWidth);
-      }
-
-      tokenParts.forEach((part) => {
-        const partWidth = measureTextWidth(part);
-        if (currentWidth + partWidth > availableWidth && hasTokenInLine) {
-          visualLineCount += 1;
-          currentWidth = 0;
-          hasTokenInLine = false;
-        }
-
-        currentWidth += partWidth;
-        hasTokenInLine = true;
-      });
-    });
-
-    visualLineCount += hasTokenInLine ? 1 : 1;
-  });
-
-  const verticalPadding = CARD_CONTENT_PADDING * 2 - 8;
-  const estimatedHeight = visualLineCount * lineHeightPx + verticalPadding;
-  return Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight));
-  //return Math.min(AUTO_RESIZE_MAX_HEIGHT, Math.max(AUTO_RESIZE_MIN_HEIGHT, Math.ceil(estimatedHeight)));
-};
 
 const getCardZIndex = (card) => (typeof card?.zIndex === 'number' ? card.zIndex : 0);
 const isExpandedGroupCard = (card) => card?.type === 'group' && !card.collapsed;
@@ -147,134 +43,6 @@ const getYoutbeUrl = (card) => {
   return card.url;
 };
 
-const EmbeddedIframe = memo(({
-  src,
-  title,
-  sandbox,
-  allow,
-  allowFullScreen,
-  referrerPolicy = 'no-referrer',
-}) => (
-  <iframe
-    className={styles.previewFrame}
-    src={src || undefined}
-    title={title}
-    referrerPolicy={referrerPolicy}
-    sandbox={sandbox}
-    allow={allow}
-    allowFullScreen={allowFullScreen}
-  />
-));
-EmbeddedIframe.displayName = 'EmbeddedIframe';
-
-const EmbeddedVideo = memo(({ src }) => (
-  <video
-    className={styles.previewFrame}
-    src={src}
-    playsInline
-    controls
-    preload="metadata"
-  />
-));
-EmbeddedVideo.displayName = 'EmbeddedVideo';
-
-const CardEmbeddedPreview = memo(({
-  card,
-  title,
-  onDragStart,
-}) => {
-  if (card.type === 'link') {
-    return (
-      <div className={styles.previewCardShell}>
-        <div
-          className={styles.previewHeader}
-          onMouseDown={(e) => onDragStart(card.id, e)}
-        >
-          {title}
-        </div>
-        <div className={styles.previewBody}>
-          <EmbeddedIframe
-            src={card.url}
-            title={title}
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (card.type === 'youtube') {
-    const embedUrl = card.videoId
-      ? `https://www.youtube.com/embed/${card.videoId}?rel=0&modestbranding=1`
-      : '';
-    return (
-      <div className={styles.previewCardShell}>
-        <div
-          className={styles.previewHeader}
-          onMouseDown={(e) => onDragStart(card.id, e)}
-        >
-          {title}
-        </div>
-        <div className={styles.previewBody}>
-          <EmbeddedIframe
-            src={embedUrl}
-            title={title}
-            referrerPolicy="strict-origin-when-cross-origin"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (card.previewType === 'pdf') {
-    return (
-      <div className={styles.previewCardShell}>
-        <div
-          className={styles.previewHeader}
-          onMouseDown={(e) => onDragStart(card.id, e)}
-        >
-          {title}
-        </div>
-        <div className={styles.previewBody}>
-          <EmbeddedIframe
-            src={card.content}
-            title={card.fileName || 'PDF preview'}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (card.previewType === 'video') {
-    return (
-      <div className={styles.previewCardShell}>
-        <div
-          className={styles.previewHeader}
-          onMouseDown={(e) => onDragStart(card.id, e)}
-        >
-          {title}
-        </div>
-        <div className={styles.previewBody}>
-          <EmbeddedVideo src={card.content} />
-        </div>
-      </div>
-    );
-  }
-
-  if (card.previewType === 'text') {
-    const previewText = (card.content || '').slice(0, 4000);
-    return (
-      <pre className={styles.previewText}>
-        {previewText || 'Text preview is empty.'}
-      </pre>
-    );
-  }
-
-  return null;
-});
-CardEmbeddedPreview.displayName = 'CardEmbeddedPreview';
 
 const InfiniteCanvas = () => {
   const stageRef = useRef(null);
@@ -323,7 +91,6 @@ const InfiniteCanvas = () => {
     ? null
     : rawSelectedCard;
   const collapsedHeight = 120;
-  const cardContentPadding = 20;
   const minimapWidth = 180;
   const minimapHeight = 120;
 
@@ -433,14 +200,19 @@ const InfiniteCanvas = () => {
           newHeight = Math.max(50, cardInitialSize.height + deltaY);
         }
 
-        updateCard(
-          resizingCardId,
-          {
-            size: { width: newWidth, height: newHeight },
-            position: { x: newX, y: newY },
-          },
-          { skipHistory: true },
-        );
+        {
+          const resizeCard = cards[resizingCardId];
+          const isTextAutoResize = resizeCard?.type === 'text' && resizeCard?.autoResize !== false;
+          const finalHeight = isTextAutoResize ? resizeCard.size.height : newHeight;
+          updateCard(
+            resizingCardId,
+            {
+              size: { width: newWidth, height: finalHeight },
+              position: { x: newX, y: newY },
+            },
+            { skipHistory: true },
+          );
+        }
 
         if (card.groupId) {
           syncGroupBounds(card.groupId);
@@ -459,6 +231,7 @@ const InfiniteCanvas = () => {
           if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) {
             continue;
           }
+          const isTextAutoResize = card.type === 'text' && card.autoResize !== false;
 
           const relativeX = canvasX - card.position.x;
           const relativeY = canvasY - card.position.y;
@@ -480,6 +253,12 @@ const InfiniteCanvas = () => {
               edgeType = 'bottom';
             }
 
+            if (edgeType) {
+              // Block height-affecting edges when auto-resize is on for text cards
+              if (isTextAutoResize && (edgeType === 'bottom' || edgeType === 'top' || edgeType === 'corner')) {
+                edgeType = null;
+              }
+            }
             if (edgeType) {
               setActiveEdge({ cardId, edgeType });
 
@@ -717,6 +496,7 @@ const InfiniteCanvas = () => {
     if (!card) return;
     //if (card.type === 'link') return;
     if (card.type === 'group' && (card.autoResize !== false || card.collapsed)) return;
+    if (card.type === 'text' && card.autoResize !== false && (type === 'bottom' || type === 'top' || type === 'corner')) return;
 
     const stage = stageRef.current;
     if (!stage) return;
@@ -1068,64 +848,6 @@ const InfiniteCanvas = () => {
     };
   }, [selectedCardIds, selectedConnectionIds, editingCardId, clearSelection, undo, redo]);
 
-  const loadImage = (src) => {
-    if (imageCache.has(src)) {
-      return imageCache.get(src);
-    }
-
-    const img = new window.Image();
-    img.src = src;
-    imageCache.set(src, img);
-    return img;
-  };
-
-  const getFileIcon = (fileType) => {
-    if (!fileType) return '📄';
-
-    if (fileType.startsWith('application/pdf')) {
-      return '📕';
-    } else if (fileType.startsWith('video/')) {
-      return '🎬';
-    } else if (fileType.startsWith('text/')) {
-      return '📄';
-    } else if (fileType.startsWith('application/msword') ||
-               fileType.includes('wordprocessingml')) {
-      return '📘';
-    } else if (fileType.includes('spreadsheet') ||
-               fileType.includes('excel')) {
-      return '📊';
-    } else if (fileType.includes('presentation') ||
-               fileType.includes('powerpoint')) {
-      return '📑';
-    }
-
-    return '📄';
-  };
-
-  const getFileTypeName = (fileType) => {
-    if (!fileType) return 'Unknown file';
-
-    if (fileType.startsWith('application/pdf')) {
-      return 'PDF file';
-    } else if (fileType.startsWith('video/')) {
-      return 'Video file';
-    } else if (fileType.startsWith('text/')) {
-      return 'Text file';
-    } else if (fileType.startsWith('application/msword') ||
-               fileType.includes('wordprocessingml')) {
-      return 'Word file';
-    } else if (fileType.includes('spreadsheet') ||
-               fileType.includes('excel')) {
-      return 'Excel file';
-    } else if (fileType.includes('presentation') ||
-               fileType.includes('powerpoint')) {
-      return 'PowerPoint file';
-    }
-
-    const parts = fileType.split('/');
-    return parts.length > 1 ? `${parts[1].toUpperCase()} file` : 'File';
-  };
-
   const getCardCenter = (card) => ({
     x: card.position.x + card.size.width / 2,
     y: card.position.y + card.size.height / 2,
@@ -1464,13 +1186,11 @@ const InfiniteCanvas = () => {
       return;
     }
 
-    if (selectedCard.type !== 'text') return;
-    const nextHeight = estimateTextCardHeight(selectedCard.content || '', selectedCard.size.width);
-
-    updateCard(selectedCard.id, {
-      collapsed: false,
-      size: { width: selectedCard.size.width, height: nextHeight },
-    });
+    if (selectedCard.type === 'text') {
+      const nextAutoResize = selectedCard.autoResize !== false;
+      updateCard(selectedCard.id, { autoResize: !nextAutoResize });
+      return;
+    }
   };
 
   const handleCopyCard = async () => {
@@ -1872,137 +1592,36 @@ const InfiniteCanvas = () => {
               clipWidth={collapsedClip ? collapsedClip.width : undefined}
               clipHeight={collapsedClip ? collapsedClip.height : undefined}
             >
-              <Rect
-                width={card.size.width}
-                height={card.size.height}
-                fill={isGroup
-                  ? (isGroupHighlighted ? 'rgba(34, 197, 94, 0.12)' : 'rgba(47, 107, 255, 0.06)')
-                  : 'white'}
-                stroke={isGroupHighlighted ? '#22c55e' : isCardSelected ? '#4285f4' : '#ddd'}
-                strokeWidth={isGroup ? (isGroupHighlighted ? 2.5 : 1) : isCardSelected ? 2 : 1}
-                shadowColor={isGroupHighlighted ? 'rgba(34, 197, 94, 0.45)' : isGroup ? 'transparent' : 'rgba(0,0,0,0.2)'}
-                shadowBlur={isGroup ? (isGroupHighlighted ? 12 : 0) : 5}
-                shadowOffset={isGroup ? { x: 0, y: 0 } : { x: 0, y: 2 }}
-                dash={isGroup ? [6, 4] : undefined}
-                cornerRadius={5}
-              />
-
-              {card.type === 'group' ? (
-                <Text
-                  x={12}
-                  y={10}
-                  width={card.size.width - 24}
-                  height={20}
-                  text={card.title || 'Group'}
-                  fontSize={13}
-                  fill={isGroupHighlighted ? '#14532d' : '#64748b'}
-                  listening={false}
-                />
-              ) : card.type === 'text' ? (
-                <MarkdownCard
-                  x={cardContentPadding}
-                  y={cardContentPadding}
-                  width={card.size.width - cardContentPadding * 2}
-                  height={card.size.height - cardContentPadding * 2}
-                  content={!card.content || card.content.trim() === '' ? 'Click to edit text content' : card.content}
-                />
-              ) : card.type === 'image' ? (
-                <Image
-                  x={0}
-                  y={15}
+              {card.type === 'text' ? (
+                <Rect
                   width={card.size.width}
-                  height={card.size.height - 15}
-                  image={loadImage(card.content)}
-                  cornerRadius={5}
-                  listening={false}
+                  height={card.size.height}
+                  fill="transparent"
+                  stroke="transparent"
+                  strokeWidth={0}
+                  cornerRadius={8}
                 />
-              ) : card.type === 'file' ? (
-                <Group>
-                  <Text
-                    x={0}
-                    y={15}
-                    width={card.size.width}
-                    height={40}
-                    text={getFileIcon(card.fileType)}
-                    fontSize={24}
-                    fill="#333"
-                    align="center"
-                    listening={false}
-                  />
-                  <Text
-                    x={0}
-                    y={55}
-                    width={card.size.width}
-                    height={30}
-                    text={card.title || card.fileName || getFileTypeName(card.fileType)}
-                    fontSize={16}
-                    fill="#333"
-                    align="center"
-                    listening={false}
-                  />
-                  <Text
-                    x={10}
-                    y={85}
-                    width={card.size.width - 20}
-                    height={card.size.height - 95}
-                    text="Click to view file"
-                    fontSize={14}
-                    fill="#666"
-                    align="center"
-                    listening={false}
-                  />
-                </Group>
-              ) : card.type === 'link' ? (
-                <Group>
-                  <Text
-                    x={0}
-                    y={18}
-                    width={card.size.width}
-                    height={30}
-                    text="🌐"
-                    fontSize={22}
-                    fill="#1f2a37"
-                    align="center"
-                    listening={false}
-                  />
-                  <Text
-                    x={16}
-                    y={50}
-                    width={card.size.width - 32}
-                    height={card.size.height - 60}
-                    text={getLinkDisplayTitle(card)}
-                    fontSize={13}
-                    fill="#475569"
-                    align="center"
-                    listening={false}
-                  />
-                </Group>
-              ) : card.type === 'youtube' ? (
-                <Group>
-                  <Text
-                    x={0}
-                    y={18}
-                    width={card.size.width}
-                    height={30}
-                    text="▶️"
-                    fontSize={22}
-                    fill="#1f2a37"
-                    align="center"
-                    listening={false}
-                  />
-                  <Text
-                    x={16}
-                    y={50}
-                    width={card.size.width - 32}
-                    height={card.size.height - 60}
-                    text={card.videoId ? `YouTube: ${card.videoId}` : 'YouTube preview'}
-                    fontSize={13}
-                    fill="#475569"
-                    align="center"
-                    listening={false}
-                  />
-                </Group>
-              ) : null}
+              ) : (
+                <Rect
+                  width={card.size.width}
+                  height={card.size.height}
+                  fill={isGroup
+                    ? (isGroupHighlighted ? 'rgba(34, 197, 94, 0.12)' : 'rgba(47, 107, 255, 0.06)')
+                    : 'white'}
+                  stroke={isGroupHighlighted ? '#22c55e' : isCardSelected ? '#4285f4' : '#ddd'}
+                  strokeWidth={isGroup ? (isGroupHighlighted ? 2.5 : 1) : isCardSelected ? 2 : 1}
+                  shadowColor={isGroupHighlighted ? 'rgba(34, 197, 94, 0.45)' : isGroup ? 'transparent' : 'rgba(0,0,0,0.2)'}
+                  shadowBlur={isGroup ? (isGroupHighlighted ? 12 : 0) : 5}
+                  shadowOffset={isGroup ? { x: 0, y: 0 } : { x: 0, y: 2 }}
+                  dash={isGroup ? [6, 4] : undefined}
+                  cornerRadius={5}
+                />
+              )}
+              <CardContentRenderer
+                card={card}
+                isSelected={isCardSelected}
+                isGroupHighlighted={isGroupHighlighted}
+              />
             </Group>
           );
           })}
@@ -2021,7 +1640,7 @@ const InfiniteCanvas = () => {
               : (isInteractivePreview(card) ? 'auto' : 'none'),
           }}
         >
-          <CardEmbeddedPreview
+          <CardPreview
             card={card}
             title={getPreviewTitle(card)}
             onDragStart={handlePreviewDragStart}
@@ -2053,9 +1672,11 @@ const InfiniteCanvas = () => {
             <button className={styles.cardOptionButton} onClick={handleResize}>
               {selectedCard.type === 'group'
                 ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
-                : (selectedCard.type === 'file' || selectedCard.type === 'image')
-                  ? 'Resize to resolution'
-                  : 'Resize'}
+                : selectedCard.type === 'text'
+                  ? (selectedCard.autoResize === false ? 'Auto Resize: Off' : 'Auto Resize: On')
+                  : (selectedCard.type === 'file' || selectedCard.type === 'image')
+                    ? 'Resize to resolution'
+                    : 'Resize'}
             </button>
           )}
           {selectedCard.type !== 'group' && (
