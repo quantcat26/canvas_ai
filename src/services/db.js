@@ -120,6 +120,27 @@ const ensureSchema = (db) => {
 
     CREATE INDEX IF NOT EXISTS idx_card_canvas ON card(canvas_id);
     CREATE INDEX IF NOT EXISTS idx_connection_canvas ON connection(canvas_id);
+
+    CREATE TABLE IF NOT EXISTS project (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      folder_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS canvas_folder (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      parent_folder_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_folder ON project(folder_id);
+    CREATE INDEX IF NOT EXISTS idx_canvas_folder_parent ON canvas_folder(parent_folder_id);
   `);
 };
 

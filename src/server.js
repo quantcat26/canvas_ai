@@ -7,6 +7,7 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import aiRoutes from './routes/aiRoutes.js';
 import canvasRoutes from './routes/canvasRoutes.js';
+import projectRoutes from './routes/projectRoutes.js';
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ app.get('/api', (req, res) => {
 
 app.use('/api/ai', aiRoutes);
 app.use('/api/canvas', canvasRoutes);
+app.use('/api/project', projectRoutes);
 
 const startServer = async () => {
   if (isDev) {

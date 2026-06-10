@@ -1,5 +1,6 @@
 import './App.css';
 import TopBar from './components/TopBar.jsx';
+import FileExplorer from './components/FileExplorer.jsx';
 import AiChatInput from './components/AiChatInput.jsx';
 import LeftToolbar from './components/LeftToolbar.jsx';
 import InfiniteCanvas from './components/InfiniteCanvas.jsx';
@@ -17,7 +18,8 @@ function App() {
   const [canvasName, setCanvasName] = useState('Default Canvas');
   const [hasHydrated, setHasHydrated] = useState(false);
   const isSavingRef = useRef(false);
-  const activeCanvasId = 'default';
+  const [activeCanvasId, setActiveCanvasId] = useState('default');
+  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [aiConfigs, setAiConfigs] = useState([]);
   const [activeConfigId, setActiveConfigId] = useState('');
   const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -109,30 +111,55 @@ function App() {
   }, [aiConfigs, activeConfigId]);
 
   useEffect(() => {
+    if (!activeCanvasId) return;
+
+    // Ensure project exists in DB
+    const ensureProject = async () => {
+      try {
+        await ApiService.getCanvas(activeCanvasId);
+      } catch (error) {
+        const isNotFound = error?.response?.status === 404;
+        if (isNotFound) {
+          // Canvas doesn't exist yet — create it with a project entry
+          try {
+            const createdProject = await ApiService.createProject('Default Project');
+            const created = await ApiService.createCanvas(createdProject.name, createdProject.id);
+            setActiveCanvasId(created.id);
+            hydrateCanvas(created.state);
+            setCanvasName(created.name);
+            setHasHydrated(true);
+            return;
+          } catch (e) {
+            console.error('Failed to create default project canvas:', e);
+          }
+        }
+      }
+    };
+
     const loadCanvas = async () => {
       try {
         const record = await ApiService.getCanvas(activeCanvasId);
         hydrateCanvas(record.state);
         setCanvasName(record.name);
+        setHasHydrated(true);
       } catch (error) {
         const isNotFound = error?.response?.status === 404;
         if (isNotFound) {
-          const created = await ApiService.createCanvas('Default Canvas');
-          hydrateCanvas(created.state);
-          setCanvasName(created.name);
+          // Try creating fresh
+          ensureProject();
         } else {
           console.error('Failed to load canvas:', error);
+          setHasHydrated(true);
         }
-      } finally {
-        setHasHydrated(true);
       }
     };
 
+    setHasHydrated(false);
     loadCanvas();
   }, [activeCanvasId, hydrateCanvas]);
 
   useEffect(() => {
-    if (!hasHydrated) return;
+    if (!hasHydrated || !activeCanvasId) return;
 
     const timer = window.setTimeout(async () => {
       try {
@@ -219,6 +246,14 @@ function App() {
     });
   };
 
+  const handleSelectProject = (projectId, projectName) => {
+    setActiveCanvasId(projectId);
+    setCanvasName(projectName || 'Untitled');
+    setFileExplorerOpen(false);
+    // Clear AI responses when switching canvas
+    setAiResponses([]);
+  };
+
   const handleCloseAiResponse = (index) => {
     setAiResponses((prev) => prev.filter((_, i) => i !== index));
   };
@@ -251,7 +286,7 @@ function App() {
 
   return (
     <div className="app-container">
-      <TopBar onOpenSettings={() => setIsConfigOpen(true)} />
+      <TopBar onOpenSettings={() => setIsConfigOpen(true)} onOpenFileExplorer={() => setFileExplorerOpen(true)} />
 
       <div className="main-content">
         <LeftToolbar />
@@ -262,6 +297,13 @@ function App() {
           onAddToCanvas={handleAddResponseToCanvas}
         />
       </div>
+
+      <FileExplorer
+        isOpen={fileExplorerOpen}
+        onToggle={() => setFileExplorerOpen(false)}
+        activeProjectId={activeCanvasId}
+        onSelectProject={handleSelectProject}
+      />
 
       <AiChatInput
         onAiSubmit={handleAiSubmit}
