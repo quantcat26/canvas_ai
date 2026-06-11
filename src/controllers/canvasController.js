@@ -1,36 +1,26 @@
 import canvasService from '../services/canvasService.js';
 import { sendApiError } from '../utils/apiResponse.js';
-
-const isObjectRecord = (value) => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-};
+import { isPlainObject, parseName } from '../utils/validation.js';
 
 const validateCanvasState = (state) => {
-  if (!isObjectRecord(state)) return false;
+  if (!isPlainObject(state)) return false;
 
   return (
     typeof state.panX === 'number' && Number.isFinite(state.panX) &&
     typeof state.panY === 'number' && Number.isFinite(state.panY) &&
     typeof state.zoom === 'number' && Number.isFinite(state.zoom) &&
-    isObjectRecord(state.cards) &&
-    isObjectRecord(state.connections)
+    isPlainObject(state.cards) &&
+    isPlainObject(state.connections)
   );
 };
 
-const parseName = (value) => {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-};
-
 class CanvasController {
-  async list(req, res) {
+  async list(_req, res) {
     try {
       const items = await canvasService.list();
       res.json(items);
     } catch (error) {
-      console.error('Failed to list canvases', error);
+      console.error('Failed to list canvases:', error);
       sendApiError(res, 500, 'CANVAS_LIST_FAILED', 'Unable to retrieve the canvas list.');
     }
   }
@@ -45,19 +35,20 @@ class CanvasController {
       }
       res.json(record);
     } catch (error) {
-      console.error('Failed to get canvas', error);
+      console.error('Failed to get canvas:', error);
       sendApiError(res, 500, 'CANVAS_GET_FAILED', 'Unable to retrieve the canvas.');
     }
   }
 
   async create(req, res) {
     try {
-      const body = isObjectRecord(req.body) ? req.body : {};
+      const body = isPlainObject(req.body) ? req.body : {};
       const name = parseName(body.name);
       const state = body.state;
 
       if (state !== undefined && !validateCanvasState(state)) {
-        sendApiError(res, 400, 'INVALID_CANVAS_STATE', 'Invalid state format; panX, panY, zoom, cards, and connections are required.');
+        sendApiError(res, 400, 'INVALID_CANVAS_STATE',
+          'Invalid state format; panX, panY, zoom, cards, and connections are required.');
         return;
       }
 
@@ -65,7 +56,7 @@ class CanvasController {
       const created = await canvasService.create(name, state, id);
       res.status(201).json(created);
     } catch (error) {
-      console.error('Failed to create canvas', error);
+      console.error('Failed to create canvas:', error);
       sendApiError(res, 500, 'CANVAS_CREATE_FAILED', 'Unable to create the canvas.');
     }
   }
@@ -73,7 +64,7 @@ class CanvasController {
   async save(req, res) {
     try {
       const { id } = req.params;
-      const body = isObjectRecord(req.body) ? req.body : null;
+      const body = isPlainObject(req.body) ? req.body : null;
       const name = parseName(body?.name);
       const state = body?.state;
 
@@ -88,14 +79,15 @@ class CanvasController {
       }
 
       if (!validateCanvasState(state)) {
-        sendApiError(res, 400, 'INVALID_CANVAS_STATE', 'Invalid state format; panX, panY, zoom, cards, and connections are required.');
+        sendApiError(res, 400, 'INVALID_CANVAS_STATE',
+          'Invalid state format; panX, panY, zoom, cards, and connections are required.');
         return;
       }
 
       const saved = await canvasService.upsert(id, { name, state });
       res.json(saved);
     } catch (error) {
-      console.error('Failed to save canvas', error);
+      console.error('Failed to save canvas:', error);
       sendApiError(res, 500, 'CANVAS_SAVE_FAILED', 'Unable to save the canvas.');
     }
   }
