@@ -1,10 +1,9 @@
 import projectService from '../services/projectService.js';
 import { sendApiError } from '../utils/apiResponse.js';
-
-const isObjectRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+import { isPlainObject } from '../utils/validation.js';
 
 class ProjectController {
-  async getTree(req, res) {
+  async getTree(_req, res) {
     try {
       const tree = await projectService.getTree();
       res.json(tree);
@@ -16,7 +15,7 @@ class ProjectController {
 
   async createProject(req, res) {
     try {
-      const body = isObjectRecord(req.body) ? req.body : {};
+      const body = isPlainObject(req.body) ? req.body : {};
       const name = typeof body.name === 'string' ? body.name : undefined;
       const folderId = typeof body.folderId === 'string' ? body.folderId : undefined;
       const project = await projectService.create(name, folderId);
@@ -30,7 +29,7 @@ class ProjectController {
   async updateProject(req, res) {
     try {
       const { id } = req.params;
-      const body = isObjectRecord(req.body) ? req.body : {};
+      const body = isPlainObject(req.body) ? req.body : {};
       const result = await projectService.update(id, body);
       if (!result) {
         sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'Project not found.');
@@ -60,7 +59,7 @@ class ProjectController {
 
   async createFolder(req, res) {
     try {
-      const body = isObjectRecord(req.body) ? req.body : {};
+      const body = isPlainObject(req.body) ? req.body : {};
       const name = typeof body.name === 'string' ? body.name : undefined;
       const parentFolderId = typeof body.parentFolderId === 'string' ? body.parentFolderId : undefined;
       const folder = await projectService.createFolder(name, parentFolderId);
@@ -74,7 +73,7 @@ class ProjectController {
   async updateFolder(req, res) {
     try {
       const { id } = req.params;
-      const body = isObjectRecord(req.body) ? req.body : {};
+      const body = isPlainObject(req.body) ? req.body : {};
       const result = await projectService.updateFolder(id, body);
       if (!result) {
         sendApiError(res, 404, 'FOLDER_NOT_FOUND', 'Folder not found.');
