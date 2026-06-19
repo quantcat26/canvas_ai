@@ -6,42 +6,42 @@ CanvasAI is an AI visual workspace platform centered on an Infinite Canvas. It r
 
 Unlike traditional whiteboard or note-taking software, CanvasAI deeply integrates AI capabilities. Users can not only organize existing information, but also interact with AI directly on the canvas to perform chat Q&A, and content generation, creating a seamless flow between information input, processing, thinking, and output.
 
+![demo](demo.gif)
+
+## Live Demo
+
+You can try out the live application here: [Live Demo Link](https://canvasai.quantcat.me/)
+
 ## Key Features
 
-- Infinite Canvas:
-  - Provides a borderless workspace with free zooming and panning.
-  - Breaks free from the constraints of traditional linear documents or fixed-size boards.
+- Infinite Canvas: A borderless workspace with smooth, free zooming and panning, freeing you from fixed-size layout constraints.
+- Card-Based Management: Organize text, media, links, and code into modular cards that you can freely drag, resize, group, and tag.
+- AI Chatbot & Co-Creation: A built-in AI assistant for instant Q&A, context-aware suggestions, translation, and automated content generation (summaries, ideas, drafts).
+- Visual Relationships: Connect cards with lines and arrows to map out logic and workflows, supported by smart alignment and layout tools.
+- Multimedia Integration: Direct embedding and live previewing for videos, audio, PDFs, and web links.
+- Project & Version Control: Organize work with multi-level folders and easily revert changes using automated version history.
 
-- Card-based Information Management:
-  - Packages different kinds of information (text, images, videos, audio, web links, code snippets, documents, and more) into independent cards.
-  - Supports free card dragging, zooming, rotation, grouping, and color/tag configuration.
+## Installation
 
-- Integrated AI Chatbot:
-  - Built-in AI assistant that can be summoned at any time for conversation.
-  - Capabilities include Q&A, concept explanation, translation, summarizing selected card content, and context-aware suggestions.
+1. Clone the repository:
 
-- AI Content Generation:
-  - Generates text (such as ideas, summaries, and drafts), lists, and even simple chart suggestions based on user instructions and selected canvas content.
-  - Helps quickly fill in content and overcome creative bottlenecks.
+   ```bash
+   git clone https://github.com/quantcat26/canvas_ai.git
+   cd canvas_ai
+   ```
+2. install dependencies
 
-- Project Management:
-  - Multi-level project and folder classification management system
+   ```bash
+   npm install
+   ```
+3. start development server
 
-- Multimedia Integration:
-  - Supports direct embedding and previewing of multiple media formats (images, videos, audio, PDFs, and more).
-  - Web link previews.
+   ```bash
+   npm run dev
+   ```
 
-- Visual Connection & Layout:
-  - Uses lines, arrows, and similar connectors to link cards and visually represent logic, flows, or structures.
-  - Provides alignment and distribution layout tools, plus possible auto-layout suggestions.
+## Environment Variables
 
-- Template Library:
-  - Offers templates for common workflows or thinking models, such as SWOT analysis, user journey maps, meeting notes, and brainstorming.
-  - Users can customize and save templates.
+### `AI_CONFIG_SECRET`
 
-- Version History & Recovery:
-  - Automatically saves canvas changes and supports viewing and restoring historical versions.
-
-- Export & Sharing:
-  - Supports exporting the entire canvas or a selected area as images (PNG, JPG, SVG), PDF, and other formats.
-  - Generates view-only or editable sharing links.
+used to encrypt/decrypt API keys in the database. Generate one with: `openssl rand -hex 32`
